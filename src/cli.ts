@@ -8,6 +8,7 @@ import { synthesizeScripts } from "./nodes/tts";
 import { renderVideos } from "./nodes/render";
 import { createRunId, createRunPaths, getOutputRoot } from "./lib/paths";
 import { readJson, writeJson } from "./lib/io";
+import { config } from "./lib/config";
 
 type RunReport = {
   runId: string;
@@ -56,7 +57,8 @@ async function runNode1(runId: string) {
 
 async function runNode2(snapshot: TrendingSnapshot, runId: string) {
   const paths = await createRunPaths(runId);
-  const facts = await collectRepositoryFacts(snapshot, paths.repos, 5);
+  console.log(`[节点 2] 按 Top ${config.githubTopN} 获取项目资料`);
+  const facts = await collectRepositoryFacts(snapshot, paths.repos, config.githubTopN);
   console.log(`[节点 2] 已保存 ${facts.length} 份项目资料：${paths.repos}`);
   return facts;
 }
@@ -158,7 +160,7 @@ async function main(): Promise<void> {
   console.log([
     "GitHub Trending Video — 节点 1–5",
     "  pnpm run trending             # 节点 1：采集并保存周榜快照",
-    "  pnpm run repos                # 节点 2：读取最近期次并收集前 5 个项目资料",
+    "  pnpm run repos                # 节点 2：读取最近期次并收集配置数量的项目资料",
     "  pnpm run scripts              # 节点 3：批量生成/读取缓存讲稿",
     "  pnpm run tts                  # 节点 4：本地 Kokoro 中文分段配音",
     "  pnpm run render               # 节点 5：按配音时长渲染动画视频",

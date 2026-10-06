@@ -18,6 +18,7 @@ public sealed class SettingsStore(RuntimePaths paths)
         public string OpenAiModel { get; set; } = "";
         public string OpenAiApiKey { get; set; } = "";
         public string GithubToken { get; set; } = "";
+        public int TrendingTopN { get; set; } = 5;
         public string KokoroModel { get; set; } = "hexgrad/Kokoro-82M-v1.1-zh";
         public string KokoroVoice { get; set; } = "zf_001";
         public string KokoroDevice { get; set; } = "cpu";
@@ -39,6 +40,7 @@ public sealed class SettingsStore(RuntimePaths paths)
                 OpenAiModel = stored.OpenAiModel,
                 OpenAiApiKey = Unprotect(stored.OpenAiApiKey),
                 GithubToken = Unprotect(stored.GithubToken),
+                TrendingTopN = Math.Clamp(stored.TrendingTopN, 1, 20),
                 KokoroModel = stored.KokoroModel,
                 KokoroVoice = stored.KokoroVoice,
                 KokoroDevice = stored.KokoroDevice,
@@ -63,6 +65,7 @@ public sealed class SettingsStore(RuntimePaths paths)
             OpenAiModel = settings.OpenAiModel.Trim(),
             OpenAiApiKey = Protect(settings.OpenAiApiKey),
             GithubToken = Protect(settings.GithubToken),
+            TrendingTopN = Math.Clamp(settings.TrendingTopN, 1, 20),
             KokoroModel = settings.KokoroModel.Trim(),
             KokoroVoice = settings.KokoroVoice.Trim(),
             KokoroDevice = settings.KokoroDevice,

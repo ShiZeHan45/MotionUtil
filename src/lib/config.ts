@@ -4,6 +4,7 @@ import path from "node:path";
 export const config = {
   githubToken: process.env.GITHUB_TOKEN,
   githubTrendingUrl: process.env.GITHUB_TRENDING_URL ?? "https://github.com/trending?since=weekly",
+  githubTopN: Math.max(1, Math.min(20, Number.parseInt(process.env.GITHUB_TOP_N ?? "5", 10) || 5)),
   openAiBaseUrl: (process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1").replace(/\/$/, ""),
   openAiApiKey: process.env.OPENAI_API_KEY,
   openAiModel: process.env.OPENAI_MODEL,

@@ -15,6 +15,8 @@ export function durationInFrames(project: RenderProject): number {
 }
 
 const palette = { ink: "#14344A", teal: "#168C86", tealLight: "#B7E0D7", coral: "#EF6A55", yellow: "#F7C64B", paper: "#F7F4EB", muted: "#667780" };
+const VIDEO_SAFE_TOP = 64;
+const CHAPTER_BAR_TOP = 112;
 const clampText = (lines: number): React.CSSProperties => ({
   display: "-webkit-box",
   WebkitBoxOrient: "vertical",
@@ -39,8 +41,8 @@ function StageBackground() {
     <AbsoluteFill style={{ background: "linear-gradient(180deg, #fbfcf9 0%, #f0f3f1 54%, #e8efed 100%)" }} />
     <div style={{ position: "absolute", top: "51%", left: 0, right: 0, height: 3, background: "rgba(20,52,74,.15)" }} />
     <div style={{ position: "absolute", left: "-25%", right: "-25%", bottom: "-7%", height: "48%", transform: "perspective(600px) rotateX(58deg)", transformOrigin: "bottom", opacity: 0.58, backgroundImage: "linear-gradient(rgba(20,52,74,.25) 2px, transparent 2px), linear-gradient(90deg, rgba(20,52,74,.25) 2px, transparent 2px)", backgroundSize: "92px 92px", maskImage: "linear-gradient(to top, black 45%, transparent 100%)" }} />
-    <div style={{ position: "absolute", top: 77, left: 64, display: "flex", alignItems: "center", gap: 13, color: palette.ink, fontSize: 25, fontWeight: 900 }}><span style={{ width: 18, height: 18, borderRadius: "50%", background: palette.coral, border: `4px solid ${palette.ink}` }} />每周开源项目排行</div>
-    <div style={{ position: "absolute", top: 81, right: 58, color: palette.teal, fontSize: 22, fontWeight: 900, letterSpacing: 1 }}>GITHUB · WEEKLY</div>
+    <div style={{ position: "absolute", top: VIDEO_SAFE_TOP, left: 64, display: "flex", alignItems: "center", gap: 13, color: palette.ink, fontSize: 25, fontWeight: 900 }}><span style={{ width: 18, height: 18, borderRadius: "50%", background: palette.coral, border: `4px solid ${palette.ink}` }} />每周开源项目排行</div>
+    <div style={{ position: "absolute", top: VIDEO_SAFE_TOP + 4, right: 58, color: palette.teal, fontSize: 22, fontWeight: 900, letterSpacing: 1 }}>GITHUB · WEEKLY</div>
   </>;
 }
 
@@ -303,8 +305,8 @@ function ConceptWalkthrough({ project, caption, durationFrames }: { project: Ren
   const limitation = project.limitations[0] || "实际效果取决于项目配置";
   return <AbsoluteFill style={{ color: palette.ink }}>
     <StageBackground />
-    <div style={{ position: "absolute", top: 144, left: 70, display: "flex", gap: 10, fontSize: 20, fontWeight: 900, color: palette.ink }}><span style={{ borderRadius: 99, padding: "8px 14px", background: palette.teal, color: "white" }}>#{project.rank}</span><span style={{ borderRadius: 99, padding: "8px 14px", background: "white" }}>原理动画 Demo</span></div>
-    <div style={{ position: "absolute", top: 218, left: 72, right: 72 }}>
+    <div style={{ position: "absolute", top: 174, left: 70, display: "flex", gap: 10, fontSize: 20, fontWeight: 900, color: palette.ink }}><span style={{ borderRadius: 99, padding: "8px 14px", background: palette.teal, color: "white" }}>#{project.rank}</span><span style={{ borderRadius: 99, padding: "8px 14px", background: "white" }}>原理动画 Demo</span></div>
+    <div style={{ position: "absolute", top: 248, left: 72, right: 72 }}>
       <div style={{ fontSize: 24, letterSpacing: 3, color: palette.teal, fontWeight: 950 }}>第二步 · 先理解原理</div>
       <div style={{ marginTop: 15, fontSize: 53, lineHeight: 1.12, fontWeight: 950, maxHeight: 120, ...clampText(2) }}>{projectName} 怎样把问题变成结果？</div>
       <div style={{ marginTop: 12, fontSize: 23, lineHeight: 1.35, color: palette.muted, fontWeight: 750, maxHeight: 66, ...clampText(2) }}>把项目的输入、核心能力和案例步骤按顺序画出来。</div>
@@ -373,11 +375,11 @@ function ExplainerScene({ project, scene, caption, index, durationFrames }: { pr
   if (scene === "concept") return <ConceptWalkthrough project={project} caption={caption} durationFrames={durationFrames} />;
   return <AbsoluteFill style={{ color: palette.ink }}>
     <StageBackground />
-    <div style={{ position: "absolute", top: 214, left: 76, right: 76, opacity, transform: `translateY(${(1 - progress) * 35}px)` }}>
+    <div style={{ position: "absolute", top: 234, left: 76, right: 76, opacity, transform: `translateY(${(1 - progress) * 35}px)` }}>
       <div style={{ fontSize: 24, letterSpacing: 3, color: content.color, fontWeight: 950 }}>{content.kicker}</div>
       <div style={{ marginTop: 16, fontSize: 54, lineHeight: 1.16, fontWeight: 950, maxHeight: 150, ...clampText(2) }}>{sceneTitles[scene] ?? project.title}</div>
     </div>
-    <div style={{ position: "absolute", top: 394, left: 76, right: 76, display: "flex", flexDirection: "column", gap: 13 }}>
+    <div style={{ position: "absolute", top: 420, left: 76, right: 76, display: "flex", flexDirection: "column", gap: 13 }}>
       <div style={{ border: `3px solid ${palette.ink}`, borderRadius: 24, background: "#fffef9", padding: "22px 27px", boxShadow: `0 9px 0 ${content.color}`, fontSize: 32, lineHeight: 1.28, fontWeight: 850, opacity, transform: `translateX(${(1 - progress) * 36}px)`, maxHeight: 138, ...clampText(3) }}>{content.main}</div>
       <div style={{ borderRadius: 18, background: "rgba(255,255,255,.78)", padding: "17px 24px", fontSize: 22, lineHeight: 1.32, color: palette.muted, fontWeight: 700, opacity: Math.max(0, progress - 0.2), maxHeight: 86, ...clampText(3) }}>{content.detail}</div>
     </div>
@@ -386,7 +388,7 @@ function ExplainerScene({ project, scene, caption, index, durationFrames }: { pr
       <SceneDiagram project={project} scene={scene} />
     </>}
     {hasEvidence && <EvidencePanel project={project} assetId={evidenceId!} />}
-    <div style={{ position: "absolute", top: 144, left: 70, display: "flex", gap: 10, fontSize: 20, fontWeight: 900, color: palette.ink }}><span style={{ borderRadius: 99, padding: "8px 14px", background: content.color, color: "white" }}>#{project.rank}</span><span style={{ borderRadius: 99, padding: "8px 14px", background: "white" }}>{index + 1} / {project.narrationSegments.length}</span></div>
+    <div style={{ position: "absolute", top: 174, left: 70, display: "flex", gap: 10, fontSize: 20, fontWeight: 900, color: palette.ink }}><span style={{ borderRadius: 99, padding: "8px 14px", background: content.color, color: "white" }}>#{project.rank}</span><span style={{ borderRadius: 99, padding: "8px 14px", background: "white" }}>{index + 1} / {project.narrationSegments.length}</span></div>
     <Subtitle text={caption} durationFrames={durationFrames} />
   </AbsoluteFill>;
 }
@@ -395,30 +397,35 @@ function ChapterProgress({ project }: { project: RenderProject }) {
   const frame = useCurrentFrame();
   const totalFrames = project.narrationSegments.reduce((total, segment) => total + framesForMs(segment.durationMs), 0);
   const position = Math.max(0, Math.min(totalFrames, frame));
-  const percent = totalFrames ? (position / totalFrames) * 100 : 0;
   const groups = [
-    { label: "排行", scenes: ["intro"] },
+    { label: "开场", scenes: ["intro"] },
     { label: "讲解", scenes: ["problem", "concept"] },
     { label: "案例", scenes: ["case", "dashboard"] },
     { label: "操作", scenes: ["setup", "workflow"] },
     { label: "条件与总结", scenes: ["requirements", "summary"] },
   ];
+  const groupFrames = groups.map((group) => project.narrationSegments
+    .filter((segment) => group.scenes.includes(segment.scene))
+    .reduce((sum, segment) => sum + framesForMs(segment.durationMs), 0));
   let cursor = 0;
   let currentChapter = 0;
-  groups.forEach((group, groupIndex) => {
-    const frames = project.narrationSegments
-      .filter((segment) => group.scenes.includes(segment.scene))
-      .reduce((sum, segment) => sum + framesForMs(segment.durationMs), 0);
-    if (position >= cursor && position < cursor + frames) currentChapter = groupIndex;
+  groups.forEach((_, groupIndex) => {
+    const frames = groupFrames[groupIndex] ?? 0;
+    if (frames > 0 && position >= cursor && position < cursor + frames) currentChapter = groupIndex;
     cursor += frames;
   });
-  return <div style={{ position: "absolute", zIndex: 80, top: 18, left: 62, right: 62 }}>
-    <div style={{ height: 7, borderRadius: 9, background: "rgba(20,52,74,.16)", overflow: "hidden", boxShadow: "0 1px 2px rgba(20,52,74,.12)" }}>
-      <div style={{ width: `${percent}%`, height: "100%", borderRadius: 9, background: `linear-gradient(90deg, ${palette.teal}, ${palette.coral})` }} />
-    </div>
-    <div style={{ marginTop: 8, display: "flex", justifyContent: "space-between", color: palette.muted, fontSize: 16, fontWeight: 850 }}>
-      {groups.map((group, index) => <span key={group.label} style={{ color: currentChapter === index ? palette.coral : palette.muted }}>{group.label}</span>)}
-    </div>
+  return <div style={{ position: "absolute", zIndex: 80, top: CHAPTER_BAR_TOP, left: 62, right: 62, height: 50, display: "flex", overflow: "hidden", border: `3px solid ${palette.ink}`, borderRadius: 16, background: "rgba(255,255,255,.82)", boxShadow: "0 5px 0 rgba(20,52,74,.12)" }}>
+    {groups.map((group, index) => {
+      const groupStart = groupFrames.slice(0, index).reduce((sum, frames) => sum + frames, 0);
+      const frames = groupFrames[index] ?? 0;
+      const groupProgress = frames ? Math.min(100, Math.max(0, ((position - groupStart) / frames) * 100)) : 0;
+      const completed = index < currentChapter || (index === currentChapter && groupProgress >= 100);
+      const active = index === currentChapter && !completed;
+      const fillColor = completed ? palette.teal : active ? palette.coral : "transparent";
+      const fill = completed ? 100 : active ? groupProgress : 0;
+      const baseColor = index <= currentChapter ? "rgba(255,255,255,.86)" : "rgba(255,255,255,.52)";
+      return <div key={group.label} style={{ position: "relative", flex: 1, minWidth: 0, display: "grid", placeItems: "center", borderLeft: index === 0 ? "none" : `2px solid rgba(20,52,74,.2)`, background: `linear-gradient(90deg, ${fillColor} ${fill}%, ${baseColor} ${fill}%)`, color: completed ? "white" : active ? palette.ink : palette.muted, fontSize: group.label.length > 4 ? 15 : 17, fontWeight: 950, textAlign: "center", textShadow: completed ? "0 1px 0 rgba(20,52,74,.25)" : "none" }}><span style={{ position: "relative", zIndex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "100%", padding: "0 5px" }}>{group.label}</span></div>;
+    })}
   </div>;
 }
 

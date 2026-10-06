@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Globalization;
 using GitHubTrendingVideo.Models;
 
 namespace GitHubTrendingVideo.Services;
@@ -38,6 +39,8 @@ public sealed class PipelineService(RuntimePaths paths, ProcessRunner processes,
                 ? JsonSerializer.Deserialize<PipelineReport>(await File.ReadAllTextAsync(reportPath, cancellationToken)) ?? new PipelineReport()
                 : new PipelineReport { RunId = runId, StartedAt = Directory.GetCreationTimeUtc(Path.Combine(outputDirectory, runId)) };
             report.RunId = runId;
+            report.CompletedNodes ??= [];
+            report.NodeDurationsSeconds ??= [];
             report.FinishedAt = null;
             report.Error = null;
             report.FailedAt = null;
@@ -58,6 +61,7 @@ public sealed class PipelineService(RuntimePaths paths, ProcessRunner processes,
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 _activeIndex = index;
+                _activeStartedAt = DateTimeOffset.UtcNow;
                 StepChanged?.Invoke(index, "运行中", 2);
                 LogLine?.Invoke($"\n── 节点 {index + 1}/5 · {Labels[index]} ──");
                 var node = environment.NodeExecutable ?? throw new InvalidOperationException("找不到 Node.js。请先到“环境与下载”安装运行环境。");
@@ -80,6 +84,8 @@ public sealed class PipelineService(RuntimePaths paths, ProcessRunner processes,
                 var label = $"节点 {index + 1}";
                 if (!completed.Contains(label)) report.CompletedNodes.Add(label);
                 report.Status = "running";
+                if (_activeStartedAt.HasValue)
+                    report.NodeDurationsSeconds[$"节点 {index + 1}"] = Math.Max(0.1, (DateTimeOffset.UtcNow - _activeStartedAt.Value).TotalSeconds);
                 await SaveReportAsync(reportFile, report, cancellationToken);
                 StepChanged?.Invoke(index, "已完成", 100);
                 OverallProgressChanged?.Invoke(index + 1, Commands.Length);
@@ -97,6 +103,7 @@ public sealed class PipelineService(RuntimePaths paths, ProcessRunner processes,
             report.FailedAt = $"节点 {_activeIndex + 1}";
             report.Error = "已停止当前运行。";
             report.FinishedAt = DateTimeOffset.UtcNow;
+            SaveActiveDuration(report);
             await SaveReportAsync(reportFile, report, CancellationToken.None);
             LogLine?.Invoke("已停止运行。");
             throw;
@@ -109,6 +116,7 @@ public sealed class PipelineService(RuntimePaths paths, ProcessRunner processes,
             report.FailedAt = $"节点 {failedIndex + 1}";
             report.Error = error.Message;
             report.FinishedAt = DateTimeOffset.UtcNow;
+            SaveActiveDuration(report);
             await SaveReportAsync(reportFile, report, CancellationToken.None);
             StepChanged?.Invoke(failedIndex, "失败", 0);
             LogLine?.Invoke($"运行失败：{error.Message}");
@@ -119,7 +127,14 @@ public sealed class PipelineService(RuntimePaths paths, ProcessRunner processes,
     public static string[] StepLabels => Labels;
 
     private int _activeIndex;
+    private DateTimeOffset? _activeStartedAt;
     private int FindActiveStepIndex() => _activeIndex;
+
+    private void SaveActiveDuration(PipelineReport report)
+    {
+        if (_activeStartedAt.HasValue)
+            report.NodeDurationsSeconds[$"节点 {_activeIndex + 1}"] = Math.Max(0.1, (DateTimeOffset.UtcNow - _activeStartedAt.Value).TotalSeconds);
+    }
 
     private static Dictionary<string, string?> CreateProcessEnvironment(AppSettings settings, string projectDirectory, string outputDirectory)
     {
@@ -130,10 +145,11 @@ public sealed class PipelineService(RuntimePaths paths, ProcessRunner processes,
             ["OPENAI_MODEL"] = settings.OpenAiModel.Trim(),
             ["OPENAI_API_KEY"] = settings.OpenAiApiKey,
             ["GITHUB_TOKEN"] = settings.GithubToken,
+            ["GITHUB_TOP_N"] = Math.Clamp(settings.TrendingTopN, 1, 20).ToString(CultureInfo.InvariantCulture),
             ["KOKORO_MODEL"] = settings.KokoroModel,
             ["KOKORO_VOICE"] = settings.KokoroVoice,
             ["KOKORO_DEVICE"] = settings.KokoroDevice,
-            ["KOKORO_SPEED"] = settings.KokoroSpeed.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["KOKORO_SPEED"] = settings.KokoroSpeed.ToString(CultureInfo.InvariantCulture),
             ["KOKORO_PYTHON"] = File.Exists(python) ? python : "python",
             ["KOKORO_CACHE_DIR"] = Path.Combine(projectDirectory, ".cache", "kokoro"),
             ["GITHUB_TRENDING_OUTPUT_DIR"] = outputDirectory,

@@ -8,6 +8,7 @@ public sealed class AppSettings
     public string OpenAiModel { get; set; } = "";
     public string OpenAiApiKey { get; set; } = "";
     public string GithubToken { get; set; } = "";
+    public int TrendingTopN { get; set; } = 5;
     public string KokoroModel { get; set; } = "hexgrad/Kokoro-82M-v1.1-zh";
     public string KokoroVoice { get; set; } = "zf_001";
     public string KokoroDevice { get; set; } = "cpu";
@@ -24,6 +25,7 @@ public sealed class PipelineReport
     public List<string> CompletedNodes { get; set; } = [];
     public string? FailedAt { get; set; }
     public string? Error { get; set; }
+    public Dictionary<string, double> NodeDurationsSeconds { get; set; } = [];
 }
 
 public sealed record RunSummary(string RunId, string Status, int VideoCount, string Directory, DateTimeOffset? ModifiedAt);
