@@ -12,6 +12,7 @@ output/
 项目知识库/
 desktop/publish/
 desktop/publish-verify/
+desktop/publish-*/
 desktop/.cache/
 *.log
 *.partial
