@@ -48,7 +48,22 @@ public sealed class RuntimePaths
     public string KokoroPython(string projectDirectory)
     {
         var virtualEnvPython = Path.Combine(projectDirectory, ".venv-kokoro", "Scripts", "python.exe");
-        return File.Exists(virtualEnvPython) ? virtualEnvPython : ManagedPythonExecutable;
+        return File.Exists(virtualEnvPython) ? virtualEnvPython : FindPython312Executable() ?? ManagedPythonExecutable;
+    }
+
+    public string? FindPython312Executable()
+    {
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+        var programFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
+        var candidates = new[]
+        {
+            ManagedPythonExecutable,
+            Path.Combine(localAppData, "Programs", "Python", "Python312", "python.exe"),
+            Path.Combine(programFiles, "Python312", "python.exe"),
+            Path.Combine(programFilesX86, "Python312", "python.exe"),
+        };
+        return candidates.FirstOrDefault(File.Exists);
     }
 
     public string KokoroCacheDirectory(string projectDirectory) => Path.Combine(projectDirectory, ".cache", "kokoro");

@@ -137,17 +137,20 @@ public sealed class EnvironmentService(RuntimePaths paths, ProcessRunner process
 
     public async Task InstallKokoroAsync(string projectDirectory, IProgress<(long done, long? total)>? progress, Action<string> log, CancellationToken cancellationToken)
     {
-        var python = paths.ManagedPythonExecutable;
+        var python = paths.FindPython312Executable();
         Directory.CreateDirectory(Path.GetDirectoryName(paths.ManagedPythonInstaller)!);
-        if (!File.Exists(python))
+        if (python is null)
         {
             await DownloadAsync($"https://www.python.org/ftp/python/{PythonVersion}/python-{PythonVersion}-amd64.exe", paths.ManagedPythonInstaller, progress, cancellationToken);
             log("正在以当前 Windows 用户安装 Python 3.12…");
             var args = new[] { "/quiet", "InstallAllUsers=0", "PrependPath=0", "Shortcuts=0", "Include_doc=0", "Include_test=0", "Include_launcher=0", "Include_tcltk=0", "Include_pip=1", $"TargetDir={paths.ManagedPythonDirectory}" };
             var result = await processes.RunAsync(paths.ManagedPythonInstaller, args, projectDirectory, cancellationToken: cancellationToken);
             if (result.ExitCode is not (0 or 3010)) throw new InvalidOperationException($"Python 安装程序退出代码 {result.ExitCode}。请重试；若安装窗口被系统阻止，请检查 Windows 安全提示。\n{result.StandardError}");
+            python = paths.FindPython312Executable();
         }
-        if (!File.Exists(python)) throw new InvalidOperationException("Python 安装已结束，但没有找到 python.exe。请重试或检查安装日志。");
+        if (python is null) throw new InvalidOperationException("Python 安装已结束，但没有找到 Python 3.12。请检查 Windows 用户安装目录或安装日志后重试。");
+        if (!string.Equals(Path.GetFullPath(python), Path.GetFullPath(paths.ManagedPythonExecutable), StringComparison.OrdinalIgnoreCase))
+            log($"检测到现有 Python 3.12：{python}");
 
         var venv = Path.Combine(projectDirectory, ".venv-kokoro");
         var venvPython = Path.Combine(venv, "Scripts", "python.exe");
@@ -238,8 +241,12 @@ public sealed class EnvironmentService(RuntimePaths paths, ProcessRunner process
 
     private static (int major, int minor, int patch) ParseVersion(string value)
     {
-        var clean = value.Trim().TrimStart('v');
-        var parts = clean.Split('.');
+        // Node prints versions as "v22.16.0", while Python prints "Python 3.12.10".
+        // Extract the numeric version instead of assuming the output starts with a digit.
+        var match = System.Text.RegularExpressions.Regex.Match(value, @"(?<!\d)\d+\.\d+(?:\.\d+)?");
+        if (!match.Success) return (0, 0, 0);
+
+        var parts = match.Value.Split('.');
         return (int.TryParse(parts.ElementAtOrDefault(0), out var a) ? a : 0, int.TryParse(parts.ElementAtOrDefault(1), out var b) ? b : 0, int.TryParse(parts.ElementAtOrDefault(2), out var c) ? c : 0);
     }
 }

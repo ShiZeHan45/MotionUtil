@@ -17,6 +17,43 @@ public sealed class ServiceTests
     }
 
     [TestMethod]
+    public void Runtime_paths_find_the_user_level_python312_installation()
+    {
+        var paths = new RuntimePaths();
+        var python = paths.FindPython312Executable();
+        Assert.IsNotNull(python, "Python 3.12 should be discoverable in the managed or standard Windows install directories.");
+        StringAssert.Contains(python!, "Python312", "The fallback must resolve a Python 3.12 installation.");
+        Assert.IsTrue(File.Exists(python));
+    }
+
+    [TestMethod]
+    public void Runtime_paths_prefer_the_project_virtual_environment()
+    {
+        var project = Path.Combine(Path.GetTempPath(), "github-trending-video-venv-test", Guid.NewGuid().ToString("N"));
+        var python = Path.Combine(project, ".venv-kokoro", "Scripts", "python.exe");
+        Directory.CreateDirectory(Path.GetDirectoryName(python)!);
+        File.WriteAllBytes(python, []);
+        try
+        {
+            var paths = new RuntimePaths();
+            Assert.AreEqual(Path.GetFullPath(python), paths.KokoroPython(project));
+        }
+        finally { Directory.Delete(project, true); }
+    }
+
+    [TestMethod]
+    public async Task Environment_check_reports_the_existing_kokoro_venv_as_ready()
+    {
+        var project = FindRepositoryRoot();
+        var paths = new RuntimePaths();
+        var service = new EnvironmentService(paths, new ProcessRunner());
+        var items = await service.CheckAsync(new AppSettings(), project);
+        var item = items.Single(x => x.Id == "python");
+        Assert.AreEqual(EnvironmentCheckState.Ready, item.State, item.Detail);
+        StringAssert.Contains(item.Detail, ".venv-kokoro");
+    }
+
+    [TestMethod]
     public async Task Process_runner_reports_output_and_non_zero_exit_codes()
     {
         var runner = new ProcessRunner();
@@ -50,5 +87,16 @@ public sealed class ServiceTests
         var error = await Assert.ThrowsExceptionAsync<InvalidOperationException>(() =>
             pipeline.RunFromStepAsync(1, settings, Environment.CurrentDirectory, CancellationToken.None));
         StringAssert.Contains(error.Message, "还没有可继续的运行期次");
+    }
+
+    private static string FindRepositoryRoot()
+    {
+        var current = new DirectoryInfo(AppContext.BaseDirectory);
+        while (current is not null)
+        {
+            if (RuntimePaths.IsProjectRoot(current.FullName)) return current.FullName;
+            current = current.Parent;
+        }
+        throw new AssertFailedException("Could not locate the repository root from the test output directory.");
     }
 }
