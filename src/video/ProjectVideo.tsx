@@ -1,0 +1,318 @@
+import React from "react";
+import { AbsoluteFill, Audio, Sequence, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
+import type { RenderProject, TrendingRepo } from "../types";
+
+export type VideoProps = { project: RenderProject; leaderboard: TrendingRepo[] };
+export const FPS = 30;
+export const INTRO_PAD_MS = 300;
+
+export function framesForMs(ms: number): number {
+  return Math.max(1, Math.ceil((ms * FPS) / 1_000));
+}
+
+export function durationInFrames(project: RenderProject): number {
+  return project.narrationSegments.reduce((total, segment) => total + framesForMs(segment.durationMs), 0) + framesForMs(INTRO_PAD_MS);
+}
+
+const palette = { ink: "#14344A", teal: "#168C86", tealLight: "#B7E0D7", coral: "#EF6A55", yellow: "#F7C64B", paper: "#F7F4EB", muted: "#667780" };
+const sceneTitles: Record<string, string> = {
+  problem: "它想解决的麻烦",
+  concept: "把 AI Agent 组织成团队",
+  case: "用一个内容团队举例",
+  dashboard: "进展和成本集中查看",
+  setup: "从安装到首次启动",
+  workflow: "目标如何变成任务",
+  requirements: "运行前要知道的事",
+  summary: "把多 Agent 工作放进同一张图",
+};
+
+function StageBackground() {
+  return <>
+    <AbsoluteFill style={{ background: "linear-gradient(180deg, #fbfcf9 0%, #f0f3f1 54%, #e8efed 100%)" }} />
+    <div style={{ position: "absolute", top: "51%", left: 0, right: 0, height: 3, background: "rgba(20,52,74,.15)" }} />
+    <div style={{ position: "absolute", left: "-25%", right: "-25%", bottom: "-7%", height: "48%", transform: "perspective(600px) rotateX(58deg)", transformOrigin: "bottom", opacity: 0.58, backgroundImage: "linear-gradient(rgba(20,52,74,.25) 2px, transparent 2px), linear-gradient(90deg, rgba(20,52,74,.25) 2px, transparent 2px)", backgroundSize: "92px 92px", maskImage: "linear-gradient(to top, black 45%, transparent 100%)" }} />
+    <div style={{ position: "absolute", top: 77, left: 64, display: "flex", alignItems: "center", gap: 13, color: palette.ink, fontSize: 25, fontWeight: 900 }}><span style={{ width: 18, height: 18, borderRadius: "50%", background: palette.coral, border: `4px solid ${palette.ink}` }} />每周开源项目排行</div>
+    <div style={{ position: "absolute", top: 81, right: 58, color: palette.teal, fontSize: 22, fontWeight: 900, letterSpacing: 1 }}>GITHUB · WEEKLY</div>
+  </>;
+}
+
+function splitCaption(text: string, limit = 24): string[] {
+  const sentences = text.match(/[^，。；！？]+[，。；！？]?/g) ?? [text];
+  const chunks: string[] = [];
+  for (const sentence of sentences) {
+    // Keep Latin words, paths, versions, and CLI flags intact while allowing Chinese
+    // captions to wrap at any character. Otherwise a command like `npx` is split
+    // across subtitle cards even though the voice reads it as one token.
+    const tokens = sentence.match(/npx\s+paperclipai\s+onboard\s+--yes|[A-Za-z0-9][A-Za-z0-9._:/-]*|--[A-Za-z0-9_-]+|\s+|[^\s]/giu) ?? [sentence];
+    let chunk = "";
+    let visibleLength = 0;
+    for (const token of tokens) {
+      const tokenLength = /^\s+$/u.test(token) ? 0 : Array.from(token).length;
+      if (visibleLength > 0 && visibleLength + tokenLength > limit) {
+        chunks.push(chunk.trim());
+        chunk = "";
+        visibleLength = 0;
+      }
+      chunk += token;
+      visibleLength += tokenLength;
+    }
+    if (chunk.trim()) chunks.push(chunk.trim());
+  }
+  return chunks.filter(Boolean);
+}
+
+function Subtitle({ text, durationFrames }: { text: string; durationFrames: number }) {
+  const frame = useCurrentFrame();
+  const chunks = splitCaption(text);
+  const totalChars = chunks.reduce((sum, chunk) => sum + Array.from(chunk).length, 0);
+  const spokenPosition = Math.min(totalChars - 1, Math.floor((frame / Math.max(1, durationFrames)) * totalChars));
+  let accumulated = 0;
+  const activeIndex = Math.max(0, chunks.findIndex((chunk) => {
+    accumulated += Array.from(chunk).length;
+    return spokenPosition < accumulated;
+  }));
+  return <div style={{ position: "absolute", zIndex: 45, left: 68, right: 68, bottom: 104, minHeight: 82, borderRadius: 22, border: "2px solid rgba(255,255,255,.6)", background: "rgba(22, 31, 40, .9)", color: "white", padding: "16px 24px", display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", fontSize: 31, lineHeight: 1.35, fontWeight: 800, boxShadow: "0 12px 26px rgba(20,30,40,.2)" }}>{chunks[activeIndex] ?? text}</div>;
+}
+
+function CodeMascot() {
+  return <svg viewBox="0 0 280 320" width="238" height="272" role="img" aria-label="友好的 AI 项目讲解员" style={{ filter: "drop-shadow(0 10px 0 rgba(20,52,74,.12))" }}>
+    <g stroke={palette.ink} strokeWidth="9" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M79 214 Q42 209 38 170 M202 213 Q239 203 244 165" fill="none" strokeWidth="17" />
+      <circle cx="37" cy="163" r="17" fill={palette.yellow} />
+      <circle cx="245" cy="158" r="17" fill={palette.coral} />
+      <rect x="57" y="95" width="166" height="150" rx="53" fill="#D9F1EB" />
+      <path d="M140 94 V58" fill="none" strokeWidth="10" />
+      <circle cx="140" cy="47" r="15" fill={palette.yellow} />
+      <rect x="77" y="119" width="126" height="84" rx="35" fill="#FFFDF6" strokeWidth="7" />
+      <ellipse cx="116" cy="154" rx="9" ry="12" fill={palette.ink} stroke="none" />
+      <ellipse cx="165" cy="154" rx="9" ry="12" fill={palette.ink} stroke="none" />
+      <path d="M119 177 Q141 195 164 177" fill="none" strokeWidth="7" />
+      <path d="M102 245 L88 278 Q85 289 98 292 L184 292 Q197 289 192 278 L178 245" fill={palette.teal} />
+      <rect x="115" y="254" width="50" height="25" rx="12" fill={palette.yellow} strokeWidth="5" />
+    </g>
+    <path d="M228 88 L236 69 L244 88 L263 96 L244 104 L236 123 L228 104 L209 96 Z" fill={palette.coral} stroke={palette.ink} strokeWidth="5" strokeLinejoin="round" />
+  </svg>;
+}
+
+function DiagramIcon({ kind }: { kind: "input" | "process" | "result" }) {
+  const common = { fill: "none", stroke: palette.ink, strokeWidth: 7, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
+  if (kind === "input") return <svg viewBox="0 0 100 100" width="84" height="84"><path {...common} d="M23 31h54v48H23z M34 20h54v48 M39 47h23 M39 59h35" /><circle cx="31" cy="79" r="10" fill={palette.coral} stroke={palette.ink} strokeWidth="5" /></svg>;
+  if (kind === "process") return <svg viewBox="0 0 100 100" width="84" height="84"><rect {...common} x="19" y="20" width="62" height="62" rx="14" fill={palette.tealLight} /><path {...common} d="M50 32v14l12 8 M13 37l10 4 M77 63l10 4 M41 11l4 10 M60 79l4 10" /><circle cx="50" cy="53" r="21" fill="white" stroke={palette.ink} strokeWidth="6" /></svg>;
+  return <svg viewBox="0 0 100 100" width="84" height="84"><path {...common} d="M19 77h62 M29 68V47h14v21 M54 68V29h14v39 M76 68V17h11v51" /><path d="M20 29L34 17L46 28" fill="none" stroke={palette.coral} strokeWidth="7" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+}
+
+function SceneDiagram({ project, scene }: { project: RenderProject; scene: string }) {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  const panelIn = spring({ frame: frame - 8, fps, config: { damping: 19, mass: 0.8 } });
+  const kinds = ["input", "process", "result"] as const;
+  const flow = project.exampleFlow ?? [];
+  const stages = scene === "concept"
+    ? [
+        { label: "共同目标", detail: project.exampleScenario, kind: kinds[0] },
+        { label: "AI 团队", detail: project.oneLineSummary, kind: kinds[1] },
+        { label: "可追踪任务", detail: project.features[0] ?? project.usage, kind: kinds[2] },
+      ]
+    : scene === "case"
+      ? [
+          { label: "目标", detail: project.exampleScenario, kind: kinds[0] },
+          { label: "协作", detail: flow.slice(0, 2).join("；") || project.features[0] || project.usage, kind: kinds[1] },
+          { label: "结果", detail: project.exampleResult, kind: kinds[2] },
+        ]
+      : scene === "workflow"
+        ? [
+            { label: "设目标", detail: "明确团队目标与完成标准", kind: kinds[0] },
+            { label: "分任务", detail: "按岗位分配具体工作", kind: kinds[1] },
+            { label: "查进展", detail: "检查状态、记录与审批", kind: kinds[2] },
+          ]
+        : scene === "requirements"
+          ? [
+              { label: "运行条件", detail: "Node.js 24.11+ · Agent执行工具", kind: kinds[0] },
+              { label: "费用边界", detail: "模型 API 按调用量计费", kind: kinds[1] },
+              { label: "适合谁用", detail: "需要管理多个 AI Agent 的团队", kind: kinds[2] },
+            ]
+          : scene === "summary"
+            ? [
+                { label: "目标", detail: "所有 Agent 围绕同一方向", kind: kinds[0] },
+                { label: "执行", detail: "任务有负责人，过程可查看", kind: kinds[1] },
+                { label: "管理", detail: "预算和审批留在人手里", kind: kinds[2] },
+              ]
+            : [
+                { label: "工作目标", detail: project.exampleScenario, kind: kinds[0] },
+                { label: "Agent 分工", detail: flow[0] ?? project.features[0] ?? project.title, kind: kinds[1] },
+                { label: "任务状态", detail: project.exampleResult, kind: kinds[2] },
+              ];
+  return <div style={{ position: "absolute", left: 74, right: 74, top: 1125, height: 480, borderRadius: 34, border: `3px solid rgba(20,52,74,.5)`, background: "rgba(255,255,255,.86)", boxShadow: "0 12px 0 rgba(20,52,74,.1)", padding: "28px 28px", boxSizing: "border-box", opacity: panelIn, transform: `translateY(${(1 - panelIn) * 36}px) scale(${0.98 + panelIn * 0.02})` }}>
+    <div style={{ fontSize: 22, color: palette.teal, fontWeight: 950, letterSpacing: 2 }}>项目示意图 · 依据项目资料整理</div>
+    <div style={{ position: "absolute", top: 100, left: 24, right: 24, display: "flex", alignItems: "stretch", justifyContent: "space-between", gap: 4 }}>
+      {stages.map((stage, index) => {
+        const cardIn = spring({ frame: frame - 12 - index * 8, fps, config: { damping: 16, mass: 0.65 } });
+        const arrowOpacity = interpolate(frame, [18 + index * 8, 28 + index * 8], [0, 1], { extrapolateRight: "clamp" });
+        return <React.Fragment key={stage.label}>
+        <div style={{ width: 244, minHeight: 270, border: `3px solid ${index === 1 ? palette.teal : palette.ink}`, borderRadius: 24, background: index === 1 ? "#E5F4EF" : "#FCFBF6", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "16px 12px", boxSizing: "border-box", textAlign: "center", opacity: cardIn, transform: `translateY(${(1 - cardIn) * 32}px) scale(${0.94 + cardIn * 0.06})` }}>
+          <DiagramIcon kind={stage.kind} />
+          <div style={{ marginTop: 8, color: palette.ink, fontWeight: 900, fontSize: 23 }}>{stage.label}</div>
+          <div style={{ marginTop: 6, color: palette.muted, fontWeight: 650, fontSize: stage.detail.length > 34 ? 16 : 18, lineHeight: 1.28, maxHeight: 68, overflow: "hidden", overflowWrap: "anywhere" }}>{stage.detail}</div>
+        </div>
+        {index < stages.length - 1 && <div style={{ alignSelf: "center", color: palette.coral, fontSize: 38, fontWeight: 950, opacity: arrowOpacity, transform: `translateX(${(1 - arrowOpacity) * -8}px)` }}>➜</div>}
+      </React.Fragment>;
+      })}
+    </div>
+    <div style={{ position: "absolute", right: 12, bottom: 3, width: 185, height: 65, borderRadius: "50%", background: "rgba(22,140,134,.12)" }} />
+  </div>;
+}
+
+function RankCard({ repo, selected, scanning, index }: { repo: TrendingRepo; selected: boolean; scanning: boolean; index: number }) {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  const entrance = spring({ frame: frame - index * 3, fps, config: { damping: 18, mass: 0.7 } });
+  const lift = selected ? interpolate(frame, [fps * 0.7, fps * 1.8], [0, -18], { extrapolateRight: "clamp" }) : 0;
+  const formatStars = (stars: number | null) => stars === null ? "—" : new Intl.NumberFormat("en-US").format(stars);
+  return <div style={{ transform: `translateY(${(1 - entrance) * 48 + lift}px) scale(${selected ? 1.035 : scanning ? 1.02 : 1})`, opacity: entrance * (selected || scanning || frame < fps * 1.2 ? 1 : 0.55), width: 800, minHeight: 126, marginBottom: 17, padding: "18px 24px", boxSizing: "border-box", display: "flex", alignItems: "center", gap: 22, border: `4px solid ${selected ? palette.teal : scanning ? palette.coral : palette.ink}`, borderRadius: 26, background: selected ? "#fffef9" : scanning ? "#fff8eb" : "rgba(255,255,255,.75)", boxShadow: selected ? "0 18px 0 rgba(22,140,134,.16)" : "0 7px 0 rgba(20,52,74,.08)" }}>
+    <div style={{ flex: "0 0 auto", width: 76, height: 76, borderRadius: "50%", display: "grid", placeItems: "center", color: "white", background: selected ? palette.coral : scanning ? palette.teal : palette.ink, fontSize: 42, fontWeight: 900 }}>#{repo.rank}</div>
+    <div style={{ minWidth: 0, flex: 1 }}>
+      <div style={{ fontSize: 32, fontWeight: 850, color: palette.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{repo.fullName}</div>
+      <div style={{ marginTop: 7, fontSize: 22, color: palette.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{repo.description || "GitHub Trending 本周项目"}</div>
+    </div>
+    <div style={{ flex: "0 0 132px", textAlign: "right", whiteSpace: "nowrap" }}>
+      <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 5, fontSize: 24, lineHeight: 1.15, fontWeight: 950, color: palette.ink }}>
+        <span style={{ color: palette.yellow, fontSize: 28 }}>★</span>{formatStars(repo.totalStars)}
+      </div>
+      {repo.starsThisWeek !== null && <div style={{ marginTop: 7, color: palette.teal, fontSize: 17, lineHeight: 1.1, fontWeight: 850 }}>↗ {formatStars(repo.starsThisWeek)} 本周</div>}
+    </div>
+    {selected && <div style={{ color: palette.teal, fontSize: 21, fontWeight: 900, flex: "0 0 auto" }}>本期介绍</div>}
+  </div>;
+}
+
+function LeaderboardScene({ project, leaderboard, caption, durationFrames }: { project: RenderProject; leaderboard: TrendingRepo[]; caption: string; durationFrames: number }) {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  const pulse = 1 + Math.sin(frame / 8) * 0.025;
+  const visibleRepos = leaderboard.slice(0, 5);
+  const locked = frame >= fps * 1.5;
+  const scanRank = Math.min(visibleRepos.length, Math.floor(frame / Math.max(1, fps * 0.24)) + 1);
+  const selected = leaderboard.find((repo) => repo.rank === project.rank) ?? { rank: project.rank, fullName: project.repo, description: project.oneLineSummary, owner: project.repo.split("/")[0] ?? "", name: project.repo.split("/")[1] ?? "", url: "", language: null, totalStars: null, starsThisWeek: null };
+  return <AbsoluteFill style={{ color: palette.ink }}>
+    <StageBackground />
+    <div style={{ position: "absolute", top: 180, left: 0, right: 0, textAlign: "center" }}>
+      <div style={{ fontSize: 26, letterSpacing: 5, color: palette.teal, fontWeight: 900 }}>本周 GitHub Trending</div>
+      <div style={{ marginTop: 22, fontSize: 66, fontWeight: 950 }}>开源项目排行</div>
+      <div style={{ marginTop: 10, fontSize: 28, color: palette.muted }}>从本周榜单中，找到值得关注的项目</div>
+    </div>
+    <div style={{ position: "absolute", top: 480, left: 140, right: 140, display: "flex", flexDirection: "column", alignItems: "center", transform: `scale(${pulse})`, transformOrigin: "center top" }}>
+      {visibleRepos.map((repo, index) => <RankCard key={repo.fullName} repo={repo} selected={locked && repo.rank === project.rank} scanning={!locked && repo.rank === scanRank} index={index} />)}
+    </div>
+    <div style={{ position: "absolute", bottom: 265, left: 0, right: 0, textAlign: "center", fontSize: 30, color: palette.ink, fontWeight: 800 }}>今天介绍：<span style={{ color: palette.coral }}>{selected.fullName}</span></div>
+    <div style={{ position: "absolute", top: 1204, left: 54, transform: `translateY(${Math.sin(frame / 14) * 5}px) rotate(${Math.sin(frame / 22) * 1.5}deg)` }}><CodeMascot /></div>
+    <Subtitle text={caption} durationFrames={durationFrames} />
+  </AbsoluteFill>;
+}
+
+function EvidencePanel({ project, assetId }: { project: RenderProject; assetId: string }) {
+  const asset = project.visualAssets?.find((item) => item.id === assetId);
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  if (!asset) return null;
+  const entrance = spring({ frame: frame - 8, fps, config: { damping: 20, mass: 0.8 } });
+  return <div style={{ position: "absolute", top: 674, left: 56, right: 56, height: 770, borderRadius: 30, overflow: "hidden", border: `4px solid ${palette.ink}`, background: "#111820", boxShadow: "0 14px 0 rgba(20,52,74,.18)", opacity: entrance, transform: `translateY(${(1 - entrance) * 30}px)` }}>
+    <div style={{ height: 56, padding: "0 22px", display: "flex", alignItems: "center", justifyContent: "space-between", color: "white", background: palette.ink, fontSize: 21, fontWeight: 900 }}>
+      <span>{asset.label}</span><span style={{ borderRadius: 99, padding: "5px 12px", color: "#173A50", background: "#D9F1EB", fontSize: 17 }}>官方演示界面</span>
+    </div>
+    <div style={{ height: 645, display: "grid", placeItems: "center", background: "#111820" }}>
+      <img src={staticFile(asset.path)} style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+    </div>
+    <div style={{ position: "absolute", left: 18, right: 18, bottom: 10, color: "#CAD8DE", fontSize: 15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>来源：{asset.sourceUrl} · 截图为官方文档中的示例数据</div>
+  </div>;
+}
+
+function ExplainerScene({ project, scene, caption, index, durationFrames }: { project: RenderProject; scene: string; caption: string; index: number; durationFrames: number }) {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  const progress = spring({ frame, fps, config: { damping: 20, mass: 0.8 } });
+  const flow = project.exampleFlow ?? [];
+  const steps = project.usageSteps ?? [];
+  const requirements = project.requirements ?? [];
+  const limitations = project.limitations ?? [];
+  const sections: Record<string, { kicker: string; main: string; detail: string; color: string }> = {
+    problem: { kicker: "第一步 · 看問題", main: project.problem, detail: project.oneLineSummary, color: palette.coral },
+    concept: { kicker: "第二步 · 搞懂它", main: project.oneLineSummary, detail: project.features[0] ?? project.usage, color: palette.teal },
+    case: { kicker: "第三步 · 具体案例", main: project.exampleScenario, detail: flow.slice(0, 3).join("  →  "), color: palette.coral },
+    dashboard: { kicker: "案例画面 · 官方控制台", main: "一个地方查看 Agent、任务与预算", detail: project.exampleResult, color: palette.teal },
+    setup: { kicker: "怎么开始 · 安装配置", main: "运行命令：npx paperclipai onboard --yes", detail: "准备 Node.js 24.11+，再按网页向导配置组织、Agent、模型和 API Key。", color: palette.yellow },
+    workflow: { kicker: "怎么使用 · 实际操作", main: "设定目标  →  分配任务  →  查看进展", detail: "明确岗位职责与预算；执行过程中查看记录、检查产物，并处理需要人工审批的事项。", color: palette.teal },
+    requirements: { kicker: "运行条件与边界", main: "Node.js 24.11+ · Agent 执行工具 · 模型 API Key", detail: "模型调用可能产生费用；只管理一个简单 Agent 时，组织管理功能可能偏重。", color: palette.coral },
+    summary: { kicker: "最后总结", main: project.oneLineSummary, detail: project.exampleResult, color: palette.teal },
+  };
+  const content = sections[scene] ?? sections.problem!;
+  const evidenceByScene: Record<string, string> = { case: "org-chart", dashboard: "dashboard", setup: "setup-wizard", workflow: "task-inbox" };
+  const evidenceId = evidenceByScene[scene];
+  const hasEvidence = Boolean(evidenceId && project.visualAssets?.some((asset) => asset.id === evidenceId));
+  const opacity = interpolate(progress, [0, 1], [0, 1]);
+  return <AbsoluteFill style={{ color: palette.ink }}>
+    <StageBackground />
+    <div style={{ position: "absolute", top: 214, left: 76, right: 76, opacity, transform: `translateY(${(1 - progress) * 35}px)` }}>
+      <div style={{ fontSize: 24, letterSpacing: 3, color: content.color, fontWeight: 950 }}>{content.kicker}</div>
+      <div style={{ marginTop: 16, fontSize: 54, lineHeight: 1.16, fontWeight: 950, maxHeight: 150, overflow: "hidden" }}>{sceneTitles[scene] ?? project.title}</div>
+    </div>
+    <div style={{ position: "absolute", top: 394, left: 76, right: 76, display: "flex", flexDirection: "column", gap: 13 }}>
+      <div style={{ border: `3px solid ${palette.ink}`, borderRadius: 24, background: "#fffef9", padding: "22px 27px", boxShadow: `0 9px 0 ${content.color}`, fontSize: 32, lineHeight: 1.28, fontWeight: 850, opacity, transform: `translateX(${(1 - progress) * 36}px)`, maxHeight: 138, overflow: "hidden" }}>{content.main}</div>
+      <div style={{ borderRadius: 18, background: "rgba(255,255,255,.78)", padding: "17px 24px", fontSize: 22, lineHeight: 1.32, color: palette.muted, fontWeight: 700, opacity: Math.max(0, progress - 0.2), maxHeight: 86, overflow: "hidden" }}>{content.detail}</div>
+    </div>
+    {!hasEvidence && <>
+      <div style={{ position: "absolute", top: 1010, right: 78, transform: `translateY(${Math.sin(frame / 14) * 5}px) rotate(${Math.sin(frame / 22) * 1.5}deg) scale(.82)`, transformOrigin: "bottom right", opacity }}><CodeMascot /></div>
+      <SceneDiagram project={project} scene={scene} />
+    </>}
+    {hasEvidence && <EvidencePanel project={project} assetId={evidenceId!} />}
+    <div style={{ position: "absolute", top: 144, left: 70, display: "flex", gap: 10, fontSize: 20, fontWeight: 900, color: palette.ink }}><span style={{ borderRadius: 99, padding: "8px 14px", background: content.color, color: "white" }}>#{project.rank}</span><span style={{ borderRadius: 99, padding: "8px 14px", background: "white" }}>{index + 1} / {project.narrationSegments.length}</span></div>
+    <Subtitle text={caption} durationFrames={durationFrames} />
+  </AbsoluteFill>;
+}
+
+function ChapterProgress({ project }: { project: RenderProject }) {
+  const frame = useCurrentFrame();
+  const totalFrames = project.narrationSegments.reduce((total, segment) => total + framesForMs(segment.durationMs), 0);
+  const position = Math.max(0, Math.min(totalFrames, frame));
+  const percent = totalFrames ? (position / totalFrames) * 100 : 0;
+  const groups = [
+    { label: "排行", scenes: ["intro"] },
+    { label: "讲解", scenes: ["problem", "concept"] },
+    { label: "案例", scenes: ["case", "dashboard"] },
+    { label: "操作", scenes: ["setup", "workflow"] },
+    { label: "条件与总结", scenes: ["requirements", "summary"] },
+  ];
+  let cursor = 0;
+  let currentChapter = 0;
+  groups.forEach((group, groupIndex) => {
+    const frames = project.narrationSegments
+      .filter((segment) => group.scenes.includes(segment.scene))
+      .reduce((sum, segment) => sum + framesForMs(segment.durationMs), 0);
+    if (position >= cursor && position < cursor + frames) currentChapter = groupIndex;
+    cursor += frames;
+  });
+  return <div style={{ position: "absolute", zIndex: 80, top: 18, left: 62, right: 62 }}>
+    <div style={{ height: 7, borderRadius: 9, background: "rgba(20,52,74,.16)", overflow: "hidden", boxShadow: "0 1px 2px rgba(20,52,74,.12)" }}>
+      <div style={{ width: `${percent}%`, height: "100%", borderRadius: 9, background: `linear-gradient(90deg, ${palette.teal}, ${palette.coral})` }} />
+    </div>
+    <div style={{ marginTop: 8, display: "flex", justifyContent: "space-between", color: palette.muted, fontSize: 16, fontWeight: 850 }}>
+      {groups.map((group, index) => <span key={group.label} style={{ color: currentChapter === index ? palette.coral : palette.muted }}>{group.label}</span>)}
+    </div>
+  </div>;
+}
+
+export const ProjectVideo: React.FC<VideoProps> = ({ project, leaderboard }) => {
+  let from = 0;
+  return <AbsoluteFill style={{ backgroundColor: palette.paper, fontFamily: "Arial, 'Microsoft YaHei', sans-serif" }}>
+    {project.narrationSegments.map((segment, index) => {
+      const frames = framesForMs(segment.durationMs);
+      const start = from;
+      from += frames;
+      return <Sequence key={`${segment.scene}-${index}`} from={start} durationInFrames={frames} name={segment.scene}>
+        {segment.scene === "intro"
+          ? <LeaderboardScene project={project} leaderboard={leaderboard} caption={segment.text} durationFrames={frames} />
+          : <ExplainerScene project={project} scene={segment.scene} caption={segment.text} index={index} durationFrames={frames} />}
+        {segment.audio ? <Audio src={staticFile(segment.audio)} /> : null}
+      </Sequence>;
+    })}
+    <ChapterProgress project={project} />
+  </AbsoluteFill>;
+};
