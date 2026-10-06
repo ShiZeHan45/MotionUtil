@@ -42,7 +42,7 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function runKokoro(scripts: ScriptWithSpokenText[], audioDirectory: string): Promise<RenderProject[]> {
+function runKokoro(scripts: ScriptWithSpokenText[], audioDirectory: string, speed: number): Promise<RenderProject[]> {
   return new Promise((resolve, reject) => {
     const helperPath = path.resolve("tools", "kokoro_tts.py");
     const child = spawn(config.kokoroPython, [helperPath], {
@@ -93,7 +93,7 @@ function runKokoro(scripts: ScriptWithSpokenText[], audioDirectory: string): Pro
       model: config.kokoroModel,
       voice: config.kokoroVoice,
       device: config.kokoroDevice,
-      speed: config.kokoroSpeed,
+      speed,
       pauseMs: config.kokoroPauseMs,
       sampleRate: 24_000,
     }));
@@ -122,8 +122,17 @@ export async function synthesizeScripts(scripts: ProjectScript[], audioDirectory
   }));
 
   console.log(`[节点 4] 使用 Kokoro ${config.kokoroModel}，音色 ${config.kokoroVoice}，设备 ${config.kokoroDevice}，语速 ${config.kokoroSpeed}`);
-  const projects = await runKokoro(prepared, audioDirectory);
+  let projects = await runKokoro(prepared, audioDirectory, config.kokoroSpeed);
   if (projects.length !== scripts.length) throw new Error(`Kokoro 返回项目数量错误：请求 ${scripts.length} 个，返回 ${projects.length} 个`);
+
+  const durationMs = (project: RenderProject) => project.narrationSegments.reduce((total, segment) => total + segment.durationMs, 0);
+  const longestDurationMs = Math.max(...projects.map(durationMs));
+  if (longestDurationMs > MAX_VIDEO_DURATION_MS && longestDurationMs <= MAX_VIDEO_DURATION_MS + 2_000) {
+    const retrySpeed = Math.min(3, Math.max(config.kokoroSpeed + 0.02, config.kokoroSpeed * 1.03));
+    console.log(`[节点 4] 检测到最长配音仅超出 ${(longestDurationMs - MAX_VIDEO_DURATION_MS) / 1_000} 秒，将以语速 ${retrySpeed.toFixed(2)} 自动重试一次`);
+    projects = await runKokoro(prepared, audioDirectory, retrySpeed);
+    if (projects.length !== scripts.length) throw new Error(`Kokoro 重试返回项目数量错误：请求 ${scripts.length} 个，返回 ${projects.length} 个`);
+  }
 
   for (const [projectIndex, project] of projects.entries()) {
     const source = scripts[projectIndex];
@@ -142,7 +151,7 @@ export async function synthesizeScripts(scripts: ProjectScript[], audioDirectory
       segment.durationMs = info.durationMs;
       console.log(`  ${segment.scene}: ${(info.durationMs / 1_000).toFixed(1)} 秒`);
     }
-    const totalDurationMs = project.narrationSegments.reduce((total, segment) => total + segment.durationMs, 0);
+    const totalDurationMs = durationMs(project);
     if (totalDurationMs > MAX_VIDEO_DURATION_MS) {
       throw new Error(`${project.repo} 配音总时长为 ${(totalDurationMs / 1_000).toFixed(1)} 秒，超过 3 分钟上限；请缩短节点 3 的讲稿后重试。`);
     }
