@@ -28,6 +28,7 @@ public sealed class MainForm : Form
     private readonly ComboBox _deviceBox = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 150 };
     private readonly NumericUpDown _speedBox = new() { Minimum = 0.1m, Maximum = 3m, DecimalPlaces = 2, Increment = 0.05m, Width = 150 };
     private readonly Label _outputLabel = new() { AutoEllipsis = true, Dock = DockStyle.Fill };
+    private Button? _resumeButton;
     private CancellationTokenSource? _runCancellation;
     private bool _busy;
 
@@ -100,9 +101,10 @@ public sealed class MainForm : Form
         var description = new Label { Text = "点击“生成本期视频”开始。软件会按 1 → 5 顺序执行，完成后在输出目录查看 MP4。", Dock = DockStyle.Fill, AutoEllipsis = true, ForeColor = Color.FromArgb(71, 85, 105) };
         var actions = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, WrapContents = false, Margin = new Padding(0), Padding = new Padding(0, 4, 0, 0) };
         var runButton = Button("▶  生成本期视频", Color.FromArgb(37, 99, 235), 210, 40); runButton.AccessibleName = "执行完整流程"; runButton.Click += async (_, _) => await StartRunAsync(0);
+        _resumeButton = Button("↪ 继续未完成", Color.FromArgb(14, 116, 144), 138, 34); _resumeButton.AccessibleName = "继续未完成流程"; _resumeButton.Margin = new Padding(12, 3, 0, 0); _resumeButton.Click += async (_, _) => await ResumeRunAsync();
         var stopButton = Button("停止", Color.FromArgb(220, 38, 38), 74, 34); stopButton.Margin = new Padding(12, 3, 0, 0); stopButton.Click += (_, _) => _runCancellation?.Cancel();
         var openButton = Button("打开输出", Color.FromArgb(71, 85, 105), 96, 34); openButton.Margin = new Padding(12, 3, 0, 0); openButton.Click += (_, _) => OpenOutputFolder();
-        actions.Controls.AddRange([runButton, stopButton, openButton]);
+        actions.Controls.AddRange([runButton, _resumeButton, stopButton, openButton]);
         _projectLabel.Text = ProjectDisplay();
         var progress = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, WrapContents = false, Margin = new Padding(0), Padding = new Padding(0, 2, 0, 0) };
         _runLabel.Margin = new Padding(0, 2, 18, 0); _overallProgress.Margin = new Padding(0, 3, 12, 0); _overallLabel.Margin = new Padding(0, 2, 0, 0);
@@ -247,9 +249,34 @@ public sealed class MainForm : Form
         finally { _busy = false; _runCancellation?.Dispose(); _runCancellation = null; SetRunButtonsEnabled(true); await RefreshRunStateAsync(); }
     }
 
+    private async Task ResumeRunAsync()
+    {
+        var project = _paths.ResolveProjectDirectory(_settings);
+        if (string.IsNullOrWhiteSpace(project)) { MessageBox.Show("请先在设置中选择项目目录。", "缺少项目目录", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+        var output = _paths.OutputDirectory(_settings, project);
+        var latestFile = Path.Combine(output, "latest-run.json");
+        if (!File.Exists(latestFile)) { MessageBox.Show("还没有可继续的运行记录，请先生成本期视频。", "没有可继续的流程", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
+        try
+        {
+            using var latest = JsonDocument.Parse(await File.ReadAllTextAsync(latestFile));
+            var runId = latest.RootElement.GetProperty("runId").GetString();
+            if (string.IsNullOrWhiteSpace(runId)) throw new InvalidOperationException("最近运行记录无效。");
+            var reportFile = Path.Combine(output, runId, "run-report.json");
+            if (!File.Exists(reportFile)) throw new InvalidOperationException("最近运行缺少状态记录。");
+            var report = JsonSerializer.Deserialize<PipelineReport>(await File.ReadAllTextAsync(reportFile));
+            if (report is null) throw new InvalidOperationException("最近运行状态记录无效。");
+            var failed = report.FailedAt is not null && int.TryParse(report.FailedAt.Replace("节点 ", "", StringComparison.Ordinal), out var failedNode) ? failedNode - 1 : -1;
+            var startIndex = failed >= 0 ? failed : Enumerable.Range(0, 5).FirstOrDefault(index => !report.CompletedNodes.Contains($"节点 {index + 1}"), 5);
+            if (startIndex >= 5) { MessageBox.Show("最近一期已经完成全部节点。", "无需继续", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
+            await StartRunAsync(startIndex);
+        }
+        catch (Exception error) { MessageBox.Show(error.Message, "无法继续流程", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+    }
+
     private void SetRunButtonsEnabled(bool enabled)
     {
         foreach (var card in _cards.Values) card.SetRunEnabled(enabled);
+        if (_resumeButton is not null) _resumeButton.Enabled = enabled;
     }
 
     private async Task RefreshAllAsync()
@@ -272,6 +299,7 @@ public sealed class MainForm : Form
             for (var index = 0; index < 5; index++) _cards[index].SetState(report.CompletedNodes.Contains($"节点 {index + 1}") ? "已完成" : report.FailedAt == $"节点 {index + 1}" ? "失败" : "等待中", report.CompletedNodes.Contains($"节点 {index + 1}") ? 100 : 0);
             _runLabel.Text = report.Status == "nodes-1-to-5-complete" ? $"最近运行已完成 · {runId}" : report.Status == "failed" ? $"最近运行失败 · {report.FailedAt}" : $"最近运行 · {runId}";
             _overallProgress.Value = report.CompletedNodes.Count; _overallLabel.Text = $"整体进度 {report.CompletedNodes.Count}/5";
+            if (_resumeButton is not null) _resumeButton.Enabled = report.Status != "nodes-1-to-5-complete" && report.CompletedNodes.Count < 5;
         }
         catch { }
     }
