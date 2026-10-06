@@ -87,7 +87,7 @@ async function generateBatch(facts: RepoFacts[]): Promise<ProjectScript[]> {
     "只能使用输入资料支持的事实，不得推测功能、性能、用户数量、收费模式或成熟度。资料不足就用中性表述，不要编造。",
     "本周名次和仓库名必须原样保留。来源只能从每个项目 allowedSources 里选择。",
     "只输出 JSON，不要 Markdown、代码围栏或额外解释。JSON 格式为 {\"scripts\":[...]}。",
-    "每个项目输出 repo, rank, title, oneLineSummary, problem, features, audience, usage, narrationSegments, sources。",
+    "每个项目必须输出 repo, rank, title, oneLineSummary, problem, features（最多3项）, audience, usage, exampleScenario, exampleFlow（2到4步）, exampleResult, usageSteps（2到5步）, requirements（1到4项）, limitations（1到3项）, narrationSegments, sources；不要省略这些字段。",
     "narrationSegments 必须正好九段且顺序固定：intro、problem、concept、case、dashboard、setup、workflow、requirements、summary；每段含 scene 和 text。只有数字需要特殊口播时才额外提供 spokenText；text 用于字幕，spokenText 用于配音。",
     "面向普通短视频观众，逐步讲明白：先说排名，再说痛点和项目是什么，用一个简单类比解释，再走完一个具体案例，然后讲界面里能看到的结果、安装配置步骤、核心操作、运行条件与边界，最后只做内容总结。",
     "严格按场景放置口播：intro 只讲排名、项目名和榜单数字；problem 只讲痛点；concept 只解释项目是什么；case 才引出并展开案例。后续场景的预告或转场句必须放在对应场景里，不能提前塞进 intro；每段口播必须和该段动画画面对应。",
@@ -108,7 +108,7 @@ async function generateBatch(facts: RepoFacts[]): Promise<ProjectScript[]> {
         { role: "user", content: JSON.stringify({ projects: facts.map(factsForPrompt) }) },
       ],
     }),
-    signal: AbortSignal.timeout(120_000),
+    signal: AbortSignal.timeout(300_000),
   });
   if (!response.ok) throw new Error(`讲稿模型请求失败：HTTP ${response.status}: ${(await response.text()).slice(0, 1_000)}`);
   const body = (await response.json()) as { choices?: Array<{ message?: { content?: string | null } }> };
@@ -140,10 +140,10 @@ export async function generateScripts(facts: RepoFacts[], outputDirectory: strin
     }
   }
   if (pending.length) {
-    console.log(`[节点 3] 为 ${pending.length} 个未缓存项目发起一次批量讲稿请求`);
-    const generated = await generateBatch(pending);
-    for (const [index, item] of pending.entries()) {
-      const script = generated[index];
+    console.log(`[节点 3] 为 ${pending.length} 个未缓存项目逐个生成讲稿，避免单次请求超时`);
+    for (const item of pending) {
+      const generated = await generateBatch([item]);
+      const script = generated[0];
       if (!script) throw new Error(`讲稿生成缺失：${item.fullName}`);
       cached.set(item.fullName.toLowerCase(), script);
       await writeJson(path.join(cacheDirectory, `${repoSlug(item.fullName)}-${cacheKey(item)}.json`), script);

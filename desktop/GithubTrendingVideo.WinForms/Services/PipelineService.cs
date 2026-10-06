@@ -141,6 +141,20 @@ public sealed class PipelineService(RuntimePaths paths, ProcessRunner processes,
             ["HF_HUB_DISABLE_XET"] = "1",
             ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1",
         };
+        var modelUri = Uri.TryCreate(env["OPENAI_BASE_URL"], UriKind.Absolute, out var parsedUri)
+            ? parsedUri
+            : new Uri("https://api.openai.com/v1");
+        var systemProxy = System.Net.WebRequest.DefaultWebProxy;
+        if (systemProxy is not null && !systemProxy.IsBypassed(modelUri))
+        {
+            var proxyUri = systemProxy.GetProxy(modelUri);
+            if (proxyUri is not null && proxyUri != modelUri)
+            {
+                env["HTTP_PROXY"] = proxyUri.AbsoluteUri;
+                env["HTTPS_PROXY"] = proxyUri.AbsoluteUri;
+                env["NODE_USE_ENV_PROXY"] = "1";
+            }
+        }
         if (!string.IsNullOrWhiteSpace(settings.RemotionBrowserExecutable)) env["REMOTION_BROWSER_EXECUTABLE"] = settings.RemotionBrowserExecutable;
         else env["REMOTION_BROWSER_EXECUTABLE"] = "";
         return env;
