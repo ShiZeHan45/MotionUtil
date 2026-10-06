@@ -104,7 +104,8 @@ public sealed class MainForm : Form
         _resumeButton = Button("↪ 继续未完成", Color.FromArgb(14, 116, 144), 138, 34); _resumeButton.AccessibleName = "继续未完成流程"; _resumeButton.Margin = new Padding(12, 3, 0, 0); _resumeButton.Click += async (_, _) => await ResumeRunAsync();
         var stopButton = Button("停止", Color.FromArgb(220, 38, 38), 74, 34); stopButton.Margin = new Padding(12, 3, 0, 0); stopButton.Click += (_, _) => _runCancellation?.Cancel();
         var openButton = Button("打开输出", Color.FromArgb(71, 85, 105), 96, 34); openButton.Margin = new Padding(12, 3, 0, 0); openButton.Click += (_, _) => OpenOutputFolder();
-        actions.Controls.AddRange([runButton, _resumeButton, stopButton, openButton]);
+        var restartButton = Button("重启应用", Color.FromArgb(107, 114, 128), 96, 34); restartButton.Margin = new Padding(12, 3, 0, 0); restartButton.Click += (_, _) => RestartApplication();
+        actions.Controls.AddRange([runButton, _resumeButton, stopButton, openButton, restartButton]);
         _projectLabel.Text = ProjectDisplay();
         var progress = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, WrapContents = false, Margin = new Padding(0), Padding = new Padding(0, 2, 0, 0) };
         _runLabel.Margin = new Padding(0, 2, 18, 0); _overallProgress.Margin = new Padding(0, 3, 12, 0); _overallLabel.Margin = new Padding(0, 2, 0, 0);
@@ -273,6 +274,31 @@ public sealed class MainForm : Form
         catch (Exception error) { MessageBox.Show(error.Message, "无法继续流程", MessageBoxButtons.OK, MessageBoxIcon.Error); }
     }
 
+    private void RestartApplication()
+    {
+        if (_busy)
+        {
+            var choice = MessageBox.Show("当前流程正在运行，重启会先停止它。是否继续？", "确认重启", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+            if (choice != DialogResult.Yes) return;
+            _runCancellation?.Cancel();
+        }
+
+        var executable = Environment.ProcessPath;
+        if (string.IsNullOrWhiteSpace(executable))
+        {
+            MessageBox.Show("无法找到当前应用程序路径。", "重启失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
+        }
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = executable,
+            Arguments = $"--wait-for-parent {Environment.ProcessId}",
+            WorkingDirectory = AppContext.BaseDirectory,
+            UseShellExecute = true,
+        });
+        Application.Exit();
+    }
+
     private void SetRunButtonsEnabled(bool enabled)
     {
         foreach (var card in _cards.Values) card.SetRunEnabled(enabled);
@@ -396,7 +422,7 @@ public sealed class MainForm : Form
 
     private sealed class NodeCard : Panel
     {
-        private readonly Label _status = new() { AutoSize = true, Font = new Font("Microsoft YaHei UI", 9, FontStyle.Bold), Location = new Point(18, 16) };
+        private readonly Label _status = new() { AutoEllipsis = true, Font = new Font("Microsoft YaHei UI", 9, FontStyle.Bold), Location = new Point(18, 16), Height = 22 };
         private readonly ProgressBar _progress = new() { Width = 300, Height = 14, Location = new Point(18, 58) };
         private readonly Label _description = new() { AutoEllipsis = true, ForeColor = Color.FromArgb(71, 85, 105), Location = new Point(18, 38), Width = 580 };
         private readonly Button _run = Button("重试此节点", Color.FromArgb(37, 99, 235), 100, 30);
@@ -413,6 +439,7 @@ public sealed class MainForm : Form
             _open.Location = new Point(Math.Max(18, right - _open.Width), 24);
             _run.Location = new Point(Math.Max(18, _open.Left - 12 - _run.Width), 24);
             var textWidth = Math.Max(120, _run.Left - 36);
+            _status.Width = textWidth;
             _description.Width = textWidth; _progress.Width = textWidth;
         }
         public void SetState(string state, int progress) { _status.Text = _status.Text.Split('·')[0].Trim() + " · " + state; _status.ForeColor = state switch { "已完成" => Color.FromArgb(22, 163, 74), "失败" => Color.FromArgb(220, 38, 38), "运行中" => Color.FromArgb(37, 99, 235), _ => Color.FromArgb(100, 116, 139) }; _progress.Value = Math.Clamp(progress, 0, 100); }
@@ -421,7 +448,7 @@ public sealed class MainForm : Form
 
     private sealed class EnvironmentCard : Panel
     {
-        private readonly Label _title = new() { AutoSize = true, Font = new Font("Microsoft YaHei UI", 10, FontStyle.Bold), Location = new Point(16, 13) };
+        private readonly Label _title = new() { AutoEllipsis = true, Font = new Font("Microsoft YaHei UI", 10, FontStyle.Bold), Location = new Point(16, 13), Height = 24 };
         private readonly Label _detail = new() { AutoEllipsis = true, ForeColor = Color.FromArgb(71, 85, 105), Location = new Point(16, 41), Width = 680 };
         private readonly Button _action = Button("操作", Color.FromArgb(37, 99, 235), 122, 32);
         private readonly ProgressBar _progress = new() { Width = 180, Height = 12, Visible = false, Location = new Point(510, 16) };
@@ -436,6 +463,7 @@ public sealed class MainForm : Form
             _action.Location = new Point(Math.Max(16, right - _action.Width), 22);
             var progressLeft = Math.Max(180, _action.Left - 16 - _progress.Width);
             _progress.Location = new Point(progressLeft, 16);
+            _title.Width = Math.Max(120, progressLeft - 28);
             _detail.Width = Math.Max(120, progressLeft - 28);
         }
         public void SetBusy(bool busy) { _action.Enabled = !busy; _action.Text = busy ? "处理中…" : "重试"; _progress.Visible = busy; }

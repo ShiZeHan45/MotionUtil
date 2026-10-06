@@ -15,8 +15,9 @@ internal static class Program
     private static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
 
     [STAThread]
-    private static void Main()
+    private static void Main(string[] args)
     {
+        WaitForRestartParent(args);
         using var mutex = new Mutex(true, MutexName, out var createdNew);
         if (!createdNew)
         {
@@ -26,6 +27,13 @@ internal static class Program
 
         ApplicationConfiguration.Initialize();
         Application.Run(new MainForm());
+    }
+
+    private static void WaitForRestartParent(string[] args)
+    {
+        if (args.Length < 2 || !string.Equals(args[0], "--wait-for-parent", StringComparison.OrdinalIgnoreCase) || !int.TryParse(args[1], out var parentId)) return;
+        try { using var parent = Process.GetProcessById(parentId); parent.WaitForExit(); }
+        catch (ArgumentException) { }
     }
 
     private static void ActivateExistingInstance()

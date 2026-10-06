@@ -2,6 +2,8 @@ import type { RepoFacts, TrendingRepo, TrendingSnapshot } from "../types";
 import { config } from "../lib/config";
 import { repoSlug } from "../lib/paths";
 import { writeJson } from "../lib/io";
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
 
 const API = "https://api.github.com";
 const API_VERSION = "2022-11-28";
@@ -51,10 +53,69 @@ type GithubReadmeResponse = {
   html_url: string;
 };
 
-async function collectOne(trending: TrendingRepo): Promise<RepoFacts> {
+type ReadmeImage = { sourceUrl: string; label: string };
+
+function readmeImages(markdown: string, readmeUrl: string): ReadmeImage[] {
+  const results: ReadmeImage[] = [];
+  const seen = new Set<string>();
+  const add = (rawUrl: string, label: string) => {
+    const trimmed = rawUrl.trim().replace(/^<|>$/g, "");
+    if (!trimmed || trimmed.startsWith("data:") || trimmed.startsWith("#")) return;
+    try {
+      const sourceUrl = new URL(trimmed, readmeUrl).toString();
+      if (!/^https?:\/\//iu.test(sourceUrl) || seen.has(sourceUrl)) return;
+      seen.add(sourceUrl);
+      results.push({ sourceUrl, label: label.trim() || `README 图片 ${results.length + 1}` });
+    } catch {
+      // Ignore malformed README links and preserve the rest of the repository facts.
+    }
+  };
+  for (const match of markdown.matchAll(/!\[([^\]]*)\]\(\s*<?([^\s)>]+)>?(?:\s+["'][^)]*["'])?\s*\)/giu)) add(match[2]!, match[1]!);
+  for (const match of markdown.matchAll(/<img\b[^>]*?src=["']([^"']+)["'][^>]*>/giu)) {
+    const alt = match[0].match(/\balt=["']([^"']*)["']/iu)?.[1] ?? "";
+    add(match[1]!, alt);
+  }
+  return results.slice(0, 4);
+}
+
+function assetExtension(sourceUrl: string, contentType: string): string {
+  const fromUrl = path.extname(new URL(sourceUrl).pathname).toLowerCase();
+  if (/^\.(?:png|jpe?g|webp|gif|svg)$/iu.test(fromUrl)) return fromUrl;
+  const fromType = contentType.split(";", 1)[0]?.toLowerCase();
+  return fromType === "image/jpeg" ? ".jpg" : fromType === "image/webp" ? ".webp" : fromType === "image/gif" ? ".gif" : fromType === "image/svg+xml" ? ".svg" : ".png";
+}
+
+async function downloadReadmeImages(images: ReadmeImage[], outputDirectory: string, slug: string) {
+  const assets: NonNullable<RepoFacts["visualAssets"]> = [];
+  const assetDirectory = path.resolve(outputDirectory, "assets", slug);
+  await mkdir(assetDirectory, { recursive: true });
+  for (const [index, image] of images.entries()) {
+    try {
+      const response = await fetch(image.sourceUrl, {
+        headers: { "user-agent": "GitHub-Trending-Video/0.1", accept: "image/avif,image/webp,image/png,image/jpeg,image/svg+xml,*/*" },
+        signal: AbortSignal.timeout(20_000),
+      });
+      if (!response.ok) continue;
+      const contentType = response.headers.get("content-type") ?? "";
+      if (contentType && !contentType.toLowerCase().startsWith("image/")) continue;
+      const buffer = Buffer.from(await response.arrayBuffer());
+      if (!buffer.length || buffer.length > 12 * 1024 * 1024) continue;
+      const filename = `readme-${String(index + 1).padStart(2, "0")}${assetExtension(image.sourceUrl, contentType)}`;
+      const localPath = path.join(assetDirectory, filename);
+      await writeFile(localPath, buffer);
+      assets.push({ id: `readme-image-${index + 1}`, path: localPath, label: image.label, sourceUrl: image.sourceUrl });
+    } catch {
+      // A broken image must not make node 2 fail; the animation will use its abstract fallback.
+    }
+  }
+  return assets;
+}
+
+async function collectOne(trending: TrendingRepo, outputDirectory: string): Promise<RepoFacts> {
   const endpoint = `${API}/repos/${trending.owner}/${trending.name}`;
   const repo = await githubGet<GithubRepoResponse>(endpoint);
   let readme: RepoFacts["readme"] = null;
+  let visualAssets: RepoFacts["visualAssets"] = [];
   try {
     const result = await githubGet<GithubReadmeResponse>(`${endpoint}/readme`);
     let text = "";
@@ -64,6 +125,8 @@ async function collectOne(trending: TrendingRepo): Promise<RepoFacts> {
       if (raw.ok) text = await raw.text();
     }
     readme = { sourceUrl: result.html_url, text: text.slice(0, README_LIMIT) };
+    const images = readmeImages(text, result.download_url ?? result.html_url);
+    visualAssets = await downloadReadmeImages(images, outputDirectory, repoSlug(trending.fullName));
   } catch (error) {
     // README is useful but not guaranteed; preserve its absence instead of inventing content.
     if (!(error instanceof Error) || !error.message.includes("404")) throw error;
@@ -82,7 +145,8 @@ async function collectOne(trending: TrendingRepo): Promise<RepoFacts> {
     defaultBranch: repo.default_branch,
     updatedAt: repo.updated_at,
     readme,
-    sources: [trending.url, endpoint, ...(readme ? [readme.sourceUrl] : [])],
+    visualAssets,
+    sources: [trending.url, endpoint, ...(readme ? [readme.sourceUrl] : []), ...visualAssets.map((asset) => asset.sourceUrl)],
   };
   return facts;
 }
@@ -93,7 +157,7 @@ export async function collectRepositoryFacts(snapshot: TrendingSnapshot, outputD
   const results: RepoFacts[] = [];
   for (const [index, item] of selected.entries()) {
     console.log(`[节点 2] ${index + 1}/${selected.length} 获取 ${item.fullName}`);
-    const facts = await collectOne(item);
+    const facts = await collectOne(item, outputDirectory);
     await writeJson(`${outputDirectory}/${repoSlug(item.fullName)}.json`, facts);
     results.push(facts);
   }

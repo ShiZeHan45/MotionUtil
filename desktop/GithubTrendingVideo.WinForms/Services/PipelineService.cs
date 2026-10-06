@@ -153,6 +153,8 @@ public sealed class PipelineService(RuntimePaths paths, ProcessRunner processes,
                 env["HTTP_PROXY"] = proxyUri.AbsoluteUri;
                 env["HTTPS_PROXY"] = proxyUri.AbsoluteUri;
                 env["NODE_USE_ENV_PROXY"] = "1";
+                env["NO_PROXY"] = "localhost,127.0.0.1,::1";
+                env["no_proxy"] = "localhost,127.0.0.1,::1";
             }
         }
         if (!string.IsNullOrWhiteSpace(settings.RemotionBrowserExecutable)) env["REMOTION_BROWSER_EXECUTABLE"] = settings.RemotionBrowserExecutable;

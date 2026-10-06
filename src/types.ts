@@ -26,6 +26,7 @@ export type RepoFacts = TrendingRepo & {
   defaultBranch: string;
   updatedAt: string;
   readme: { sourceUrl: string; text: string } | null;
+  visualAssets?: VisualAsset[];
   sources: string[];
 };
 

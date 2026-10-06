@@ -44,6 +44,7 @@ function cacheKey(facts: RepoFacts): string {
     starsThisWeek: facts.starsThisWeek,
     readme: facts.readme?.text ?? null,
     sources: facts.sources,
+    visualAssets: facts.visualAssets?.map(({ id, label, sourceUrl }) => ({ id, label, sourceUrl })) ?? [],
   };
   return createHash("sha256").update(JSON.stringify({ prompt: PROMPT_VERSION, model: config.openAiModel, facts: compact })).digest("hex");
 }
@@ -61,6 +62,7 @@ function factsForPrompt(facts: RepoFacts) {
     homepage: facts.homepage,
     license: facts.license,
     readme: facts.readme?.text ?? null,
+    visualAssets: facts.visualAssets?.map(({ id, label, sourceUrl }) => ({ id, label, sourceUrl })) ?? [],
     allowedSources: facts.sources,
   };
 }
@@ -121,7 +123,7 @@ async function generateBatch(facts: RepoFacts[]): Promise<ProjectScript[]> {
     const script = byRepo.get(source.fullName.toLowerCase());
     if (!script) throw new Error(`模型漏掉仓库 ${source.fullName}`);
     validateScriptCoverage(script, source);
-    return script;
+    return { ...script, visualAssets: source.visualAssets };
   });
 }
 
@@ -134,7 +136,7 @@ export async function generateScripts(facts: RepoFacts[], outputDirectory: strin
     try {
       const script = await readJson<ProjectScript>(cachePath);
       validateScriptCoverage(script, item);
-      cached.set(item.fullName.toLowerCase(), script);
+      cached.set(item.fullName.toLowerCase(), { ...script, visualAssets: item.visualAssets });
     } catch {
       pending.push(item);
     }
@@ -145,7 +147,7 @@ export async function generateScripts(facts: RepoFacts[], outputDirectory: strin
       const generated = await generateBatch([item]);
       const script = generated[0];
       if (!script) throw new Error(`讲稿生成缺失：${item.fullName}`);
-      cached.set(item.fullName.toLowerCase(), script);
+      cached.set(item.fullName.toLowerCase(), { ...script, visualAssets: item.visualAssets });
       await writeJson(path.join(cacheDirectory, `${repoSlug(item.fullName)}-${cacheKey(item)}.json`), script);
     }
   }

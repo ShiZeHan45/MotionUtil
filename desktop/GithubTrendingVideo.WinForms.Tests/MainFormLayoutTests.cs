@@ -25,7 +25,7 @@ public sealed class MainFormLayoutTests
         OnSta(() =>
         {
             using var form = CreateMinimumSizeForm();
-            foreach (var text in new[] { "▶  生成本期视频", "停止", "打开输出" })
+            foreach (var text in new[] { "▶  生成本期视频", "停止", "打开输出", "重启应用" })
             {
                 var button = FindControls<Button>(form).FirstOrDefault(control => control.Text == text);
                 Assert.IsNotNull(button, $"Expected the run page action '{text}'.");
