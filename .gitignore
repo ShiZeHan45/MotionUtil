@@ -17,5 +17,12 @@ desktop/.cache/
 *.tmp
 *.user
 *.suo
+*.pem
+*.p12
+*.pfx
+*.key
+credentials*.json
+secrets*.json
+**/settings.json
 desktop/**/bin/
 desktop/**/obj/
