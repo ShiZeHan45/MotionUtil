@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "motionvideopipeline://schemas/opening-galaxy.schema.json",
+  "title": "OpeningGalaxySpec",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["projectName", "starCount", "starCountSpoken", "durationFrames", "labels", "targetLabelId", "timeline"],
+  "properties": {
+    "projectName": { "type": "string", "minLength": 1, "maxLength": 80 },
+    "starCount": { "type": "integer", "minimum": 0 },
+    "starCountSpoken": { "type": "string", "pattern": "^[一二三四五六七八九十百千万亿零点0-9]+$" },
+    "durationFrames": { "type": "integer", "minimum": 300, "maximum": 450, "description": "10至15秒，30fps" },
+    "labels": {
+      "type": "array",
+      "minItems": 48,
+      "maxItems": 160,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "displayName", "isTarget", "position", "seed"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-zA-Z0-9._-]+$" },
+          "displayName": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "isTarget": { "type": "boolean" },
+          "position": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["x", "y", "z"],
+            "properties": { "x": { "type": "number" }, "y": { "type": "number" }, "z": { "type": "number" } }
+          },
+          "seed": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "targetLabelId": { "type": "string" },
+    "timeline": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "fromFrame", "toFrame", "camera", "audioText", "subtitleText"],
+        "properties": {
+          "id": { "enum": ["establish", "galaxy", "dollyIn", "focus", "starMetric", "handoff"] },
+          "fromFrame": { "type": "integer", "minimum": 0 },
+          "toFrame": { "type": "integer", "exclusiveMinimum": 0 },
+          "camera": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["z", "lookAtTarget"],
+            "properties": {
+              "z": { "type": "number", "minimum": 0.1, "maximum": 100 },
+              "lookAtTarget": { "type": "string" }
+            }
+          },
+          "audioText": { "type": "string" },
+          "subtitleText": { "type": "string", "maxLength": 80 }
+        }
+      }
+    }
+  },
+  "allOf": [
+    { "if": { "properties": { "labels": { "contains": { "properties": { "isTarget": { "const": true } } } } } }, "then": {} }
+  ],
+  "x-runtimeRules": [
+    "必须恰好有一个 labels[].isTarget=true，且等于 targetLabelId",
+    "固定口播模板为：图解万物 之 GitHub 篇，今天要介绍的是 {projectName}，截止目前已斩获 {starCountSpoken} 颗星。",
+    "timeline 必须覆盖 0 到 durationFrames，且相邻区间无间隙、无重叠",
+    "镜头 z 必须从 32 单调下降至约 12；星团12秒内旋转不超过32.4度",
+    "starCount 必须来自 EvidencePack.stargazers_count，缺失时阻断渲染"
+  ]
+}

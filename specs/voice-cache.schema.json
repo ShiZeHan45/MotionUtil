@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://motionvideopipeline.local/schemas/voice-cache.schema.json",
+  "title": "MotionVideoPipeline VoiceCacheManifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["manifestVersion", "preloadPolicy", "runtimeVersion", "generatedAt", "profiles"],
+  "properties": {
+    "manifestVersion": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "preloadPolicy": { "const": "eager-all-voices" },
+    "runtimeVersion": { "type": "string", "minLength": 1 },
+    "modelId": { "type": "string", "minLength": 1 },
+    "device": { "enum": ["cpu", "cuda", "directml"] },
+    "sampleText": { "type": "string", "minLength": 1 },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "profiles": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "voiceId",
+          "language",
+          "modelCachePath",
+          "previewAudioPath",
+          "cacheKey",
+          "sha256",
+          "sampleRate",
+          "frameCount",
+          "status",
+          "preparedAt"
+        ],
+        "properties": {
+          "voiceId": { "type": "string", "minLength": 1 },
+          "displayName": { "type": "string", "minLength": 1 },
+          "language": { "type": "string", "minLength": 2 },
+          "modelCachePath": { "type": "string", "minLength": 1 },
+          "previewAudioPath": { "type": "string", "minLength": 1 },
+          "cacheKey": { "type": "string", "minLength": 1 },
+          "sha256": { "type": "string", "pattern": "^[A-Fa-f0-9]{64}$" },
+          "sampleRate": { "type": "integer", "minimum": 8000 },
+          "frameCount": { "type": "integer", "minimum": 1 },
+          "status": { "enum": ["pending", "warming", "ready", "failed", "stale"] },
+          "error": { "type": "string" },
+          "preparedAt": { "type": "string", "format": "date-time" }
+        }
+      }
+    }
+  },
+  "x-runtimeRules": [
+    "应用音色页可交互前，profiles 中每一项 status 必须为 ready",
+    "试听只读取 previewAudioPath；试听事件不得触发模型加载、网络请求或首次文件生成",
+    "模型缓存和试听 WAV 必须先写临时文件、校验 SHA-256 后原子替换",
+    "sampleTextHash、speed、sampleRate 或 runtimeVersion 变化时必须生成新的 cacheKey",
+    "任意音色预热失败必须可重试并显示失败原因，不得静默替换成其他音色"
+  ]
+}

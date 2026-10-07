@@ -1,0 +1,75 @@
+{
+  "specVersion": "1.0.0",
+  "canvas": {
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "aspectRatio": "9:16",
+    "safeArea": { "top": 132, "right": 72, "bottom": 120, "left": 72 },
+    "contentRect": { "x": 72, "y": 132, "width": 936, "height": 1668 }
+  },
+  "color": {
+    "ink": "#101828",
+    "inkMuted": "#475467",
+    "inkSubtle": "#667085",
+    "line": "#D0D5DD",
+    "lineSoft": "#E4E7EC",
+    "surface": "#FFFFFF",
+    "surfaceTint": "#F2F4F7",
+    "canvasBackground": "#F7F9FC",
+    "accent": "#007AFF",
+    "accentStrong": "#0A84FF",
+    "accentCyan": "#4CC9F0",
+    "accentGreen": "#12B76A",
+    "accentAmber": "#F79009",
+    "danger": "#F04438",
+    "star": "#FFD60A",
+    "openingBackground": "#050816",
+    "openingSecondary": "#0A1028",
+    "openingText": "#F8FAFC"
+  },
+  "typography": {
+    "fontFamily": ["PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "sans-serif"],
+    "titlePx": 64,
+    "chapterPx": 38,
+    "bodyPx": 34,
+    "subtitlePx": 42,
+    "captionPx": 24,
+    "progressPx": 28,
+    "weights": { "regular": 400, "medium": 500, "semibold": 600, "bold": 700 },
+    "subtitle": { "maxLines": 2, "maxCharsPerLine": 18, "lineHeightPx": 52, "lineGapPx": 8 }
+  },
+  "motion": {
+    "standardDurationFrames": 18,
+    "chapterTransitionFrames": 24,
+    "microEase": "easeOutCubic",
+    "sceneEase": "easeInOutCubic",
+    "spring": { "damping": 200, "stiffness": 90, "mass": 1 },
+    "backgroundPathSpeedWorldUnitsPerSecond": 22,
+    "backgroundDotSpeedPxPerSecondMax": 8
+  },
+  "progressBar": {
+    "x": 72,
+    "y": 148,
+    "width": 936,
+    "height": 56,
+    "cellCount": 5,
+    "cellWidth": 187.2,
+    "dividerWidth": 2,
+    "labels": ["开场", "原理", "案例", "应用", "结论"],
+    "unfinishedBackground": "#E7EAF0",
+    "completedFill": "#007AFF",
+    "activeFill": "#0A84FF",
+    "unfinishedText": "#667085",
+    "activeText": "#FFFFFF",
+    "completedText": "#FFFFFF",
+    "textAnchor": "middle"
+  },
+  "openingGalaxy": {
+    "camera": { "fov": 35, "near": 0.1, "far": 2000, "startZ": 32, "focusZ": 12 },
+    "label": { "maxWorldWidth": 2.4, "worldFontSize": 0.22, "normalColor": "#B8C4D6", "normalOpacity": 0.55, "focusedOpacity": 1, "unfocusedOpacity": 0.14 },
+    "starParticles": { "count": 320, "minSize": 0.018, "maxSize": 0.06, "colors": ["#FFFFFF", "#C7D2FE", "#A5F3FC"] },
+    "trail": { "color": "#4CC9F0", "lineWidthPx": 2, "drawStartFrame": 105, "drawEndFrame": 185 },
+    "starMetric": { "iconColor": "#FFD60A", "valueColor": "#F8FAFC", "captionColor": "#AAB7CF", "captionPx": 20, "letterSpacingPx": 2 }
+  }
+}

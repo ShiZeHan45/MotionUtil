@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://motionvideopipeline.local/schemas/pronunciation.schema.json",
+  "title": "MotionVideoPipeline PronunciationPlan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "locale", "tokens"],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "locale": { "const": "zh-CN" },
+    "tokens": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source", "displayText", "pronunciationText", "kind", "status"],
+        "properties": {
+          "source": { "type": "string", "minLength": 1 },
+          "displayText": { "type": "string", "minLength": 1 },
+          "pronunciationText": { "type": "string", "minLength": 1 },
+          "kind": { "enum": ["plain", "english-proper-name", "acronym", "integer", "decimal", "percentage", "version", "date", "code", "url"] },
+          "dictionaryRef": { "type": "string" },
+          "status": { "enum": ["verified", "needs-review", "blocked"] },
+          "evidenceRefs": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    }
+  },
+  "x-runtimeRules": [
+    "整数按中文单位读法转换，不得逐位读数；12345 必须输出 一万两千三百四十五",
+    "英文专名、缩写和 URL 必须命中发音词典或 phoneme hint；未命中时 status=blocked",
+    "画面/字幕使用 displayText，Kokoro 使用 pronunciationText",
+    "版本号、日期、百分比、小数、端口和代码参数必须按 token kind 使用专用读法，不得套用整数转换",
+    "status=blocked 的 token 禁止进入音频生成节点"
+  ]
+}

@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "motionvideopipeline://schemas/progress-bar.schema.json",
+  "title": "ProgressBarSpec",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["width", "height", "x", "y", "labels", "chapters", "totalDurationInFrames"],
+  "properties": {
+    "width": { "const": 936 },
+    "height": { "const": 56 },
+    "x": { "const": 72 },
+    "y": { "const": 148 },
+    "labels": { "const": ["开场", "原理", "案例", "应用", "结论"] },
+    "totalDurationInFrames": { "type": "integer", "minimum": 1 },
+    "chapters": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "startFrame", "endFrame", "hookFrames"],
+        "properties": {
+          "id": { "enum": ["opening", "principle", "case", "application", "conclusion"] },
+          "startFrame": { "type": "integer", "minimum": 0 },
+          "endFrame": { "type": "integer", "exclusiveMinimum": 0 },
+          "hookFrames": { "type": "integer", "minimum": 0 }
+        }
+      }
+    }
+  },
+  "x-geometry": {
+    "cellWidth": "width / 5 = 187.2",
+    "dividerWidth": 2,
+    "textAnchor": "每格矩形中心，水平垂直居中"
+  },
+  "x-frameAlgorithm": {
+    "chapterProgress": "clamp((frame - chapter.startFrame) / max(1, chapter.endFrame - chapter.startFrame), 0, 1)",
+    "cellFillWidth": "interpolate(frame, [startFrame, endFrame], [0, 187.2], {extrapolateLeft:'clamp', extrapolateRight:'clamp'})",
+    "activeChapter": "hookFrames > 0 且 frame 位于 conclusion 范围内时仍为 conclusion"
+  },
+  "x-runtimeRules": [
+    "chapters 必须按 opening, principle, case, application, conclusion 排序",
+    "前一章节 endFrame 必须等于后一章节 startFrame",
+    "最后一个 endFrame 必须等于 totalDurationInFrames",
+    "hookFrames 只记录结论内 hook beat 时长，不创建第六个元素",
+    "所有动画由 useCurrentFrame() 驱动，禁止CSS transition、requestAnimationFrame、Date.now()"
+  ]
+}

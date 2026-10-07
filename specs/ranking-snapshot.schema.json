@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://motionvideopipeline.local/schemas/ranking-snapshot.schema.json",
+  "title": "MotionVideoPipeline RankingSnapshot",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["snapshotId", "source", "sourceUrl", "period", "fetchedAt", "items"],
+  "properties": {
+    "snapshotId": { "type": "string", "minLength": 1 },
+    "source": { "const": "github-trending-weekly" },
+    "sourceUrl": { "const": "https://github.com/trending?since=weekly" },
+    "period": { "const": "weekly" },
+    "weekEnding": { "type": "string", "format": "date" },
+    "fetchedAt": { "type": "string", "format": "date-time" },
+    "fallbackUsed": { "type": "boolean" },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["rank", "projectName", "repositoryUrl", "owner", "stargazersCount", "language", "capturedAt"],
+        "properties": {
+          "rank": { "type": "integer", "minimum": 1 },
+          "projectName": { "type": "string", "minLength": 1 },
+          "repositoryUrl": { "type": "string", "format": "uri" },
+          "owner": { "type": "string", "minLength": 1 },
+          "description": { "type": "string" },
+          "stargazersCount": { "type": "integer", "minimum": 0 },
+          "starsDelta": { "type": "integer" },
+          "language": { "type": ["string", "null"] },
+          "topics": { "type": "array", "items": { "type": "string" } },
+          "defaultBranch": { "type": "string" },
+          "isArchived": { "type": "boolean" },
+          "capturedAt": { "type": "string", "format": "date-time" }
+        }
+      }
+    }
+  }
+}

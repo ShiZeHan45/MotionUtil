@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://motionvideopipeline.local/schemas/batch-task.schema.json",
+  "title": "MotionVideoPipeline BatchTask",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "taskId",
+    "mode",
+    "batchCount",
+    "ranking",
+    "filters",
+    "domainPackageId",
+    "autonomousMode",
+    "humanApprovalRequired",
+    "onCandidateShortage",
+    "onProjectFailure",
+    "createdAt"
+  ],
+  "properties": {
+    "taskId": { "type": "string", "minLength": 1 },
+    "mode": { "const": "weekly-ranking" },
+    "batchCount": { "type": "integer", "minimum": 1, "maximum": 100 },
+    "ranking": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "sourceUrl", "period", "fallbackSources"],
+      "properties": {
+        "source": { "const": "github-trending-weekly" },
+        "sourceUrl": { "const": "https://github.com/trending?since=weekly" },
+        "period": { "const": "weekly" },
+        "weekEnding": { "type": "string", "format": "date" },
+        "fallbackSources": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "filters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["languages", "minStars", "excludeGeneratedWithinDays", "excludeArchived"],
+      "properties": {
+        "languages": { "type": "array", "items": { "type": "string" } },
+        "minStars": { "type": "integer", "minimum": 0 },
+        "excludeGeneratedWithinDays": { "type": "integer", "minimum": 0 },
+        "excludeArchived": { "type": "boolean" },
+        "includeTopics": { "type": "array", "items": { "type": "string" } },
+        "excludeTopics": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "domainPackageId": { "type": "string", "minLength": 1 },
+    "modelProfileId": { "type": "string", "minLength": 1 },
+    "voiceProfileId": { "type": "string", "minLength": 1 },
+    "musicPolicyId": { "type": "string", "minLength": 1 },
+    "outputDirectory": { "type": "string", "minLength": 1 },
+    "autonomousMode": { "const": true },
+    "humanApprovalRequired": { "const": false },
+    "onCandidateShortage": { "enum": ["continue-with-available", "fail-task"] },
+    "onProjectFailure": { "const": "quarantine-and-continue" },
+    "createdAt": { "type": "string", "format": "date-time" }
+  }
+}

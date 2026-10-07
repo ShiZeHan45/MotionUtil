@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://motionvideopipeline.local/schemas/domain-package.schema.json",
+  "title": "MotionVideoPipeline DomainPackage",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["packageId", "version", "displayName", "generatedBy", "sourcePolicy", "riskLevel", "status", "files"],
+  "properties": {
+    "packageId": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{1,63}$" },
+    "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "displayName": { "type": "string", "minLength": 1 },
+    "description": { "type": "string" },
+    "generatedBy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "model", "generatedAt"],
+      "properties": {
+        "provider": { "type": "string", "minLength": 1 },
+        "model": { "type": "string", "minLength": 1 },
+        "generatedAt": { "type": "string", "format": "date-time" },
+        "promptHash": { "type": "string" }
+      }
+    },
+    "sourcePolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requiredSourceTypes", "minIndependentSources", "allowUserProvidedSources"],
+      "properties": {
+        "requiredSourceTypes": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "minIndependentSources": { "type": "integer", "minimum": 1 },
+        "allowUserProvidedSources": { "type": "boolean" },
+        "blockedDomains": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "riskLevel": { "enum": ["low", "medium", "high"] },
+    "status": { "enum": ["generated", "validated", "enabled", "needs-human-review", "rejected", "rolled-back"] },
+    "files": {
+      "type": "array",
+      "minItems": 6,
+      "uniqueItems": true,
+      "items": { "type": "string" },
+      "allOf": [
+        { "contains": { "const": "domain.json" } },
+        { "contains": { "const": "collectors/" } },
+        { "contains": { "const": "prompts/" } },
+        { "contains": { "const": "hooks.json" } },
+        { "contains": { "const": "visual-theme.json" } },
+        { "contains": { "const": "quality-rules.json" } }
+      ]
+    },
+    "validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaPassed": { "type": "boolean" },
+        "sourceCoveragePassed": { "type": "boolean" },
+        "disabledExpressionCheckPassed": { "type": "boolean" },
+        "sampleRenderPassed": { "type": "boolean" },
+        "reportPath": { "type": "string" }
+      }
+    },
+    "humanGovernance": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "reviewRequired": { "type": "boolean" },
+        "reviewReason": { "type": "string" },
+        "reviewedBy": { "type": "string" },
+        "reviewedAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

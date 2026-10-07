@@ -1,0 +1,28 @@
+# Build and runtime output
+artifacts/
+logs/
+runtime-data/
+
+# JavaScript dependencies and caches
+node_modules/
+.pnpm-store/
+.turbo/
+.cache/
+
+# Python environments and caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# .NET build output
+bin/
+obj/
+
+# Local editor and OS files
+.vs/
+.idea/
+*.user
+*.suo
+Thumbs.db
+Desktop.ini

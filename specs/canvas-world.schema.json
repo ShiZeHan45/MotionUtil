@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "motionvideopipeline://schemas/canvas-world.schema.json",
+  "title": "CanvasWorldSchema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "world", "elements", "cameraRig", "background", "actions"],
+  "properties": {
+    "schemaVersion": { "type": "string", "const": "1.0.0" },
+    "world": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["origin", "unit", "bounds"],
+      "properties": {
+        "origin": { "const": "viewport-center" },
+        "unit": { "const": "world" },
+        "bounds": { "type": "object", "required": ["minX", "maxX", "minY", "maxY"], "properties": { "minX": { "type": "number" }, "maxX": { "type": "number" }, "minY": { "type": "number" }, "maxY": { "type": "number" } } }
+      }
+    },
+    "elements": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "type", "position", "style", "persistent"],
+        "properties": {
+          "id": { "type": "string" },
+          "type": { "enum": ["text", "node", "line", "group", "particle-field", "evidence-window", "icon"] },
+          "position": { "type": "object", "required": ["x", "y", "z"], "properties": { "x": { "type": "number" }, "y": { "type": "number" }, "z": { "type": "number" } } },
+          "style": { "type": "object" },
+          "persistent": { "type": "boolean" },
+          "sourceRefs": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "cameraRig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["position", "lookAt", "projection"],
+      "properties": {
+        "position": { "type": "object", "required": ["x", "y", "z"], "properties": { "x": { "type": "number" }, "y": { "type": "number" }, "z": { "type": "number" } } },
+        "lookAt": { "type": "object", "required": ["x", "y", "z"], "properties": { "x": { "type": "number" }, "y": { "type": "number" }, "z": { "type": "number" } } },
+        "projection": { "enum": ["orthographic", "perspective"] },
+        "fov": { "type": "number", "minimum": 1, "maximum": 120 }
+      }
+    },
+    "background": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "trajectoryCount", "color", "opacity"],
+      "properties": {
+        "type": { "enum": ["bezier-trajectories", "particle-field"] },
+        "trajectoryCount": { "type": "integer", "const": 6 },
+        "color": { "const": "#E4E7EC" },
+        "opacity": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "actions": { "type": "array", "items": { "type": "object", "required": ["beatId", "type", "fromFrame", "toFrame"], "properties": { "beatId": { "type": "string" }, "type": { "enum": ["draw", "connect", "emphasize", "pan", "zoom", "fade-context", "clear-zone", "hold"] }, "fromFrame": { "type": "integer", "minimum": 0 }, "toFrame": { "type": "integer", "exclusiveMinimum": 0 }, "targetIds": { "type": "array", "items": { "type": "string" } }, "params": { "type": "object" } } } }
+  },
+  "x-runtimeRules": [
+    "所有章节共享一个 CanvasWorld；beat 只提交增量动作，不能重新创建整张画布",
+    "空间不足时必须先 clear-zone 或 camera-pan 到空白区域，再绘制新主题",
+    "历史元素 opacity 可降至0.18，但不得在章节切换时全部销毁",
+    "背景轨迹使用预分配 BufferGeometry，只更新 uniform 或顶点位移",
+    "渲染帧函数不得网络请求、模型调用、读系统时间或调用 Math.random()"
+  ]
+}

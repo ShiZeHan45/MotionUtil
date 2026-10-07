@@ -1,0 +1,30 @@
+{
+  "specVersion": "1.0.0",
+  "severity": ["block", "warn", "info"],
+  "rules": [
+    { "id": "VIDEO_DIMENSIONS", "severity": "block", "check": "width==1080 && height==1920 && fps==30", "message": "视频必须为1080x1920、30fps" },
+    { "id": "VIDEO_DURATION", "severity": "block", "check": "durationMs<=300000", "message": "视频时长不得超过5分钟" },
+    { "id": "CHAPTER_ORDER", "severity": "block", "check": "chapters.ids==['opening','principle','case','application','conclusion']", "message": "必须使用五个主章节固定顺序" },
+    { "id": "HOOK_PLACEMENT", "severity": "block", "check": "only conclusion.beats[-1].kind may equal 'hook'", "message": "钩子只能是结论章节最后一个beat，不得创建第六格" },
+    { "id": "PROGRESS_CELLS", "severity": "block", "check": "progress.labels==['开场','原理','案例','应用','结论']", "message": "顶部进度条必须是五个等宽格且文字居中" },
+    { "id": "SAFE_AREA", "severity": "block", "check": "all critical bounds inside x=72..1008,y=132..1800", "message": "关键文字、字幕和主体不得越过刘海屏安全区" },
+    { "id": "OPENING_SCRIPT", "severity": "block", "check": "opening.spokenText matches required template", "message": "开场必须使用规定固定话术和项目变量" },
+    { "id": "STAR_SOURCE", "severity": "block", "check": "starCount.sourceRefs.length>0 && source is GitHub stargazers_count", "message": "Star 数必须可追溯，缺失时禁止猜测" },
+    { "id": "AUDIO_FOR_EACH_BEAT", "severity": "block", "check": "every rendered beat has audioPath and durationMs from audio frames", "message": "每个口播beat必须有真实音频帧数" },
+    { "id": "VOICE_CACHE_READY", "severity": "block", "check": "voiceCache.preloadPolicy=='eager-all-voices' && every voice.status=='ready' before audio generation", "message": "所有音色必须在配音任务前完成本地预缓存，试听不得触发懒加载" },
+    { "id": "PRONUNCIATION_COVERAGE", "severity": "block", "check": "every english token has dictionaryRef or phonemeHint && every integer token has zhUnit pronunciationText && no token.status=='blocked'", "message": "英文发音和中文单位数字读法必须可追溯且不能存在阻断 token" },
+    { "id": "SUBTITLE_ALIGNMENT", "severity": "block", "check": "subtitle.beatId==audio.beatId==visualAction.beatId", "message": "字幕、音频和画面必须绑定同一beat" },
+    { "id": "SUBTITLE_LENGTH", "severity": "block", "check": "maxLines<=2 && maxCharsPerLine<=18", "message": "中文字幕必须在两行内可读" },
+    { "id": "EVIDENCE_COVERAGE", "severity": "block", "check": "every factual claim has evidenceRefs or hypothesis flag", "message": "事实、数字、案例和限制必须有来源或明确假设" },
+    { "id": "NO_STATIC_CARD_OPEN", "severity": "block", "check": "opening contains camera/particle/draw actions and no static-card-only first beat", "message": "不能以静态卡片加大段文字开场" },
+    { "id": "CONTINUOUS_CANVAS", "severity": "block", "check": "all chapters reference one CanvasWorld id", "message": "全片必须在同一无边画布连续作画" },
+    { "id": "AUDIO_CLIPPING", "severity": "block", "check": "truePeakDb<=-1.0", "message": "混音不得削波" },
+    { "id": "VOICE_CLARITY", "severity": "warn", "check": "voiceToBgmRmsDb>=12", "message": "人声与背景音乐至少保持12dB相对优势" },
+    { "id": "BACKGROUND_CONTRAST", "severity": "warn", "check": "backgroundMotionContrast<subjectContrast*0.45", "message": "背景运动不能抢过主体和字幕" },
+    { "id": "RENDER_DETERMINISM", "severity": "block", "check": "no wall-clock, network, or non-seeded random in render code", "message": "Remotion渲染必须可复现" },
+    { "id": "EXE_OUTPUT_PATH", "severity": "block", "check": "publishedExeDirectory endsWith '/artifacts' and no version subdirectory", "message": "EXE必须统一写入固定artifacts目录" },
+    { "id": "CORE_TDD_GATE", "severity": "block", "check": "coreLogicTestReport.requiredSuites all pass and changedCoreModules have tests", "message": "核心逻辑变更必须先有并通过TDD测试套件" },
+    { "id": "CHANGE_COMMIT_TRACE", "severity": "block", "check": "currentRound.commit exists && knowledgeBaseChangeLog.exists && commit.message contains change/verification/risk", "message": "每轮改动必须有描述、知识库记录和原子提交" }
+  ],
+  "report": { "requiredFields": ["ruleId", "severity", "status", "actual", "expected", "file", "suggestedFix"], "statuses": ["pass", "fail", "skipped"] }
+}
