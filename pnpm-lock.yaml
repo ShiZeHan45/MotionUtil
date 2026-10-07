@@ -1,0 +1,45 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .: {}
+
+  renderer:
+    dependencies:
+      '@react-three/fiber':
+        specifier: ^8.17.10
+        version: 8.17.10
+      '@remotion/three':
+        specifier: ^4.0.0
+        version: 4.0.0
+      react:
+        specifier: ^18.3.1
+        version: 18.3.1
+      remotion:
+        specifier: ^4.0.0
+        version: 4.0.0
+      three:
+        specifier: ^0.170.0
+        version: 0.170.0
+
+  workers/content-runtime:
+    dependencies:
+      '@react-three/fiber':
+        specifier: ^8.17.10
+        version: 8.17.10
+      '@remotion/three':
+        specifier: ^4.0.0
+        version: 4.0.0
+      react:
+        specifier: ^18.3.1
+        version: 18.3.1
+      remotion:
+        specifier: ^4.0.0
+        version: 4.0.0
+      three:
+        specifier: ^0.170.0
+        version: 0.170.0

@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <UseWindowsForms>true</UseWindowsForms>
+    <AssemblyName>MotionVideoPipeline</AssemblyName>
+    <RootNamespace>MotionVideoPipeline.App</RootNamespace>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Contracts\MotionVideoPipeline.Contracts.csproj" />
+    <ProjectReference Include="..\Orchestrator\MotionVideoPipeline.Orchestrator.csproj" />
+  </ItemGroup>
+</Project>

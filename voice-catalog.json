@@ -1,0 +1,17 @@
+{
+  "catalogVersion": "1.0.0",
+  "runtimeVersion": "kokoro-local-m0",
+  "voices": [
+    {
+      "voiceId": "zh_female_default",
+      "displayName": "中文女声 · Default",
+      "language": "zh-CN",
+      "modelId": "hexgrad/Kokoro-82M-v1.1-zh",
+      "pythonRuntimePath": "",
+      "modelCachePath": "",
+      "sampleText": "图解万物，今天开始一段清晰的知识之旅。",
+      "speed": 1.0,
+      "sampleRate": 24000
+    }
+  ]
+}
