@@ -121,6 +121,9 @@ public sealed class WorkerProcessManager
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            StandardInputEncoding = new UTF8Encoding(false),
+            StandardOutputEncoding = new UTF8Encoding(false),
+            StandardErrorEncoding = new UTF8Encoding(false),
             UseShellExecute = false,
             CreateNoWindow = true
         };
@@ -135,21 +138,24 @@ public sealed class WorkerProcessManager
         timeoutCts.CancelAfter(timeout);
         try
         {
-            while (!process.StandardOutput.EndOfStream)
-            {
-                var line = await process.StandardOutput.ReadLineAsync(timeoutCts.Token);
-                if (line is null) break;
-                if (WorkerMessage.TryParse(line, out var message, out var error) && message is not null) messages.Add(message);
-                else throw new InvalidDataException($"Worker stdout 不是有效 JSONL: {error}");
-            }
+            // Drain both pipes concurrently so a verbose diagnostic stream cannot block stdout.
+            var stdoutTask = process.StandardOutput.ReadToEndAsync(timeoutCts.Token);
+            var stderrTask = process.StandardError.ReadToEndAsync(timeoutCts.Token);
             await process.WaitForExitAsync(timeoutCts.Token);
+            var stdout = await stdoutTask;
+            var stderr = await stderrTask;
+            foreach (var line in stdout.Split(["\r\n", "\n"], StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (WorkerMessage.TryParse(line, out var message, out var error) && message is not null) messages.Add(message);
+                else throw new InvalidDataException($"Worker stdout 不是有效 JSONL: {error}; line={line}");
+            }
+            if (process.ExitCode != 0) throw new InvalidOperationException($"Worker 退出码 {process.ExitCode}。诊断: {stderr}");
         }
         catch (OperationCanceledException)
         {
             TryKill(process);
             throw;
         }
-        if (process.ExitCode != 0) throw new InvalidOperationException($"Worker 退出码 {process.ExitCode}。诊断: {await process.StandardError.ReadToEndAsync()}");
         return messages;
     }
 

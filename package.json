@@ -6,6 +6,8 @@
   "scripts": {
     "typecheck": "node scripts/typecheck.mjs",
     "test": "node --experimental-strip-types --test workers/content-runtime/tests/*.test.ts renderer/tests/*.test.ts tests/node/*.test.ts",
-    "render:blank-canvas": "node --experimental-strip-types renderer/src/render-blank-canvas.ts"
+    "test:m1-fixture": "node --experimental-strip-types --test workers/content-runtime/tests/m1.test.ts",
+    "render:blank-canvas": "node --experimental-strip-types renderer/src/render-blank-canvas.ts",
+    "render:m1-fixture": "node --experimental-strip-types renderer/src/render-m1-fixture.ts"
   }
 }

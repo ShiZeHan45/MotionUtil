@@ -4,8 +4,10 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@remotion/three": "^4.0.0",
     "@react-three/fiber": "^8.17.10",
+    "@remotion/bundler": "4.0.534",
+    "@remotion/renderer": "4.0.534",
+    "@remotion/three": "^4.0.0",
     "react": "^18.3.1",
     "remotion": "^4.0.0",
     "three": "^0.170.0"

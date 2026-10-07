@@ -20,19 +20,25 @@ public sealed record WorkerMessage(
     string Type,
     JsonElement Payload)
 {
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        PropertyNameCaseInsensitive = true
+    };
+
     public static WorkerMessage Create(string requestId, string nodeId, string nodeVersion, string type, object? payload)
     {
         using var document = JsonDocument.Parse(JsonSerializer.Serialize(payload ?? new { }));
         return new WorkerMessage(requestId, nodeId, nodeVersion, type, document.RootElement.Clone());
     }
 
-    public string ToJsonLine() => JsonSerializer.Serialize(this);
+    public string ToJsonLine() => JsonSerializer.Serialize(this, JsonOptions);
 
     public static bool TryParse(string line, out WorkerMessage? message, out string? error)
     {
         try
         {
-            message = JsonSerializer.Deserialize<WorkerMessage>(line);
+            message = JsonSerializer.Deserialize<WorkerMessage>(line, JsonOptions);
             if (message is null || string.IsNullOrWhiteSpace(message.RequestId) ||
                 string.IsNullOrWhiteSpace(message.NodeId) || string.IsNullOrWhiteSpace(message.NodeVersion) ||
                 string.IsNullOrWhiteSpace(message.Type))

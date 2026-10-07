@@ -3,8 +3,8 @@
   "runtimeVersion": "kokoro-local-m0",
   "voices": [
     {
-      "voiceId": "zh_female_default",
-      "displayName": "中文女声 · Default",
+      "voiceId": "zf_001",
+      "displayName": "中文女声 · ZF 001",
       "language": "zh-CN",
       "modelId": "hexgrad/Kokoro-82M-v1.1-zh",
       "pythonRuntimePath": "",

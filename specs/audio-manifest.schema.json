@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "motionvideopipeline://schemas/audio-manifest.schema.json",
+  "title": "AudioManifest",
+  "type": "object",
+  "required": ["voiceId", "beats"],
+  "properties": {
+    "voiceId": { "type": "string" },
+    "beats": { "type": "array", "items": { "type": "object", "required": ["beatId", "audioPath", "sampleRate", "frameCount", "durationMs", "sha256"], "properties": { "beatId": { "type": "string" }, "audioPath": { "type": "string" }, "sampleRate": { "type": "integer" }, "frameCount": { "type": "integer" }, "durationMs": { "type": "integer" }, "sha256": { "type": "string" } } } }
+  }
+}

@@ -7,12 +7,14 @@
   "required": ["snapshotId", "source", "sourceUrl", "period", "fetchedAt", "items"],
   "properties": {
     "snapshotId": { "type": "string", "minLength": 1 },
-    "source": { "const": "github-trending-weekly" },
-    "sourceUrl": { "const": "https://github.com/trending?since=weekly" },
+    "source": { "enum": ["github-trending-weekly", "github-search-weekly"] },
+    "sourceUrl": { "type": "string", "format": "uri" },
     "period": { "const": "weekly" },
     "weekEnding": { "type": "string", "format": "date" },
     "fetchedAt": { "type": "string", "format": "date-time" },
     "fallbackUsed": { "type": "boolean" },
+    "warning": { "type": "string" },
+    "rawContentSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
     "items": {
       "type": "array",
       "items": {

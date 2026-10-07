@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "motionvideopipeline://schemas/subtitle-timeline.schema.json",
+  "title": "SubtitleTimeline",
+  "type": "object",
+  "required": ["cues"],
+  "properties": { "cues": { "type": "array", "items": { "type": "object", "required": ["index", "beatId", "startMs", "endMs", "text"], "properties": { "index": { "type": "integer" }, "beatId": { "type": "string" }, "startMs": { "type": "integer" }, "endMs": { "type": "integer" }, "text": { "type": "string" } } } } }
+}
