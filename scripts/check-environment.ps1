@@ -7,6 +7,11 @@ foreach ($name in @('dotnet','node','pnpm','py')) {
 }
 $model = Join-Path $env:USERPROFILE '.cache\huggingface\hub\models--hexgrad--Kokoro-82M-v1.1-zh'
 $checks['kokoroModelCache'] = @{ available = Test-Path -LiteralPath $model; path = $model }
+$llmBaseUrl = if ($env:MVP_LLM_BASE_URL) { $env:MVP_LLM_BASE_URL } else { [Environment]::GetEnvironmentVariable('MVP_LLM_BASE_URL', 'User') }
+$llmModel = if ($env:MVP_LLM_MODEL) { $env:MVP_LLM_MODEL } else { [Environment]::GetEnvironmentVariable('MVP_LLM_MODEL', 'User') }
+$llmKey = if ($env:MVP_LLM_API_KEY) { $env:MVP_LLM_API_KEY } else { [Environment]::GetEnvironmentVariable('MVP_LLM_API_KEY', 'User') }
+$llmKeyConfigured = -not [string]::IsNullOrWhiteSpace($llmKey)
+$checks['llm'] = @{ configured = (-not [string]::IsNullOrWhiteSpace($llmBaseUrl) -and -not [string]::IsNullOrWhiteSpace($llmModel) -and $llmKeyConfigured); baseUrl = $llmBaseUrl; model = $llmModel; apiKeyConfigured = $llmKeyConfigured }
 $configuredFfmpeg = if ($env:MVP_FFMPEG_PATH) { $env:MVP_FFMPEG_PATH } else { $null }
 $remotionFfmpeg = Get-ChildItem -LiteralPath (Join-Path $root 'node_modules\.pnpm') -Filter 'ffmpeg.exe' -File -Recurse -ErrorAction SilentlyContinue |
   Where-Object { $_.FullName -match 'compositor-win32-x64-msvc' } | Select-Object -First 1

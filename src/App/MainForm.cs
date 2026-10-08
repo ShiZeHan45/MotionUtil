@@ -80,8 +80,8 @@ public sealed class MainForm : Form
         content.Controls.Add(LabelFor("语言过滤（逗号分隔）", 440, 52)); languageFilter = TextInput("", 590, 48, 180); content.Controls.Add(languageFilter);
         content.Controls.Add(LabelFor("排除已生成天数", 790, 52)); excludeGeneratedDays = new NumericUpDown { Minimum = 0, Maximum = 3650, Value = 30, Width = 80, Location = new Point(900, 48) }; content.Controls.Add(excludeGeneratedDays);
         content.Controls.Add(LabelFor("领域包", 0, 96)); content.Controls.Add(new Label { Text = "github-open-source（产品内置）", AutoSize = true, ForeColor = Ink, Location = new Point(100, 96) });
-        content.Controls.Add(LabelFor("模型 Base URL", 0, 140)); modelBaseUrl = TextInput(Environment.GetEnvironmentVariable("MVP_LLM_BASE_URL") ?? "", 100, 136, 300); content.Controls.Add(modelBaseUrl);
-        content.Controls.Add(LabelFor("模型", 420, 140)); modelName = TextInput(Environment.GetEnvironmentVariable("MVP_LLM_MODEL") ?? "", 470, 136, 220); content.Controls.Add(modelName);
+        content.Controls.Add(LabelFor("模型 Base URL", 0, 140)); modelBaseUrl = TextInput(ConfiguredEnvironment("MVP_LLM_BASE_URL"), 100, 136, 300); content.Controls.Add(modelBaseUrl);
+        content.Controls.Add(LabelFor("模型", 420, 140)); modelName = TextInput(ConfiguredEnvironment("MVP_LLM_MODEL"), 470, 136, 220); content.Controls.Add(modelName);
         content.Controls.Add(LabelFor("Key 环境变量", 710, 140)); apiKeyEnv = TextInput("MVP_LLM_API_KEY", 800, 136, 180); content.Controls.Add(apiKeyEnv);
         content.Controls.Add(LabelFor("音色", 0, 184)); voice = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 160, Location = new Point(100, 180) }; voice.Items.Add("zf_001 · 中文女声"); voice.SelectedIndex = 0; content.Controls.Add(voice);
         content.Controls.Add(LabelFor("BGM 策略", 290, 184)); bgmPolicy = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 180, Location = new Point(370, 180) }; bgmPolicy.Items.AddRange(["自动，无 BGM 也继续", "仅有 BGM 才导出"]); bgmPolicy.SelectedIndex = 0; content.Controls.Add(bgmPolicy);
@@ -100,7 +100,13 @@ public sealed class MainForm : Form
         var languages = languageFilter.Text.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var generatedDates = CandidateSelector.LoadCompletedRunDates(artifacts);
         var options = new WeeklyBatchOptions(taskId, (int)batchCount.Value, new CandidateFilter(languages, (long)minStars.Value, new HashSet<string>(), new HashSet<string>(), new HashSet<string>(), new HashSet<string>(), GeneratedRepositoryDates: generatedDates, ExcludeGeneratedWithinDays: (int)excludeGeneratedDays.Value), ProjectConcurrency: 3);
-        var model = JsonSerializer.SerializeToElement(new { profileId = "default-content-model", baseUrl = modelBaseUrl.Text.Trim(), apiKeyEnvVar = apiKeyEnv.Text.Trim(), model = modelName.Text.Trim(), timeoutSeconds = 90, maxRetries = 3 });
+        var apiKeyName = apiKeyEnv.Text.Trim();
+        if (!string.IsNullOrWhiteSpace(apiKeyName) && string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(apiKeyName)))
+        {
+            var userKey = Environment.GetEnvironmentVariable(apiKeyName, EnvironmentVariableTarget.User);
+            if (!string.IsNullOrWhiteSpace(userKey)) Environment.SetEnvironmentVariable(apiKeyName, userKey);
+        }
+        var model = JsonSerializer.SerializeToElement(new { profileId = "default-content-model", baseUrl = modelBaseUrl.Text.Trim(), apiKeyEnvVar = apiKeyName, model = modelName.Text.Trim(), timeoutSeconds = 90, maxRetries = 3 });
         var concurrencyGates = new M1ConcurrencyGates(sourceCollectionConcurrency: 3, aiPlanningConcurrency: 2, renderingConcurrency: 1);
         var runOptions = new M1RunOptions(workspace, artifacts, Path.Combine(workspace, "voice-catalog.json"), Path.Combine(artifacts, "voice-cache"), VoiceIdFromSelection(), ModelProfile: model, ConcurrencyGates: concurrencyGates);
         projectGrid.DataSource = null; logBox.Clear(); workerStatus.Text = "周榜采集中 · 等待 Worker";
@@ -120,6 +126,7 @@ public sealed class MainForm : Form
     }
 
     private string VoiceIdFromSelection() => voice.SelectedItem?.ToString()?.Split('·')[0].Trim() ?? "zf_001";
+    private static string ConfiguredEnvironment(string name) => Environment.GetEnvironmentVariable(name) ?? Environment.GetEnvironmentVariable(name, EnvironmentVariableTarget.User) ?? "";
     private string FindWorkspaceRoot() { var directory = new DirectoryInfo(AppContext.BaseDirectory); while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "voice-catalog.json"))) directory = directory.Parent!; return directory?.FullName ?? AppContext.BaseDirectory; }
     private void UpdateStatus(string text) { if (IsDisposed) return; BeginInvoke(() => workerStatus.Text = text); }
     private void AppendLog(string text) { if (IsDisposed) return; BeginInvoke(() => logBox.AppendText($"[{DateTime.Now:HH:mm:ss}] {text}\r\n")); }
