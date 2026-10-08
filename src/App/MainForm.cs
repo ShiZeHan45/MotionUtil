@@ -14,6 +14,7 @@ public sealed class MainForm : Form
     private readonly Panel content = new();
     private readonly DataGridView projectGrid = new();
     private readonly TextBox logBox = new();
+    private Control? activePage;
     private CancellationTokenSource? runCancellation;
     private Task? runningTask;
     private NumericUpDown batchCount = new();
@@ -30,7 +31,9 @@ public sealed class MainForm : Form
     public MainForm()
     {
         Text = "MotionVideoPipeline · M1";
-        MinimumSize = new Size(1180, 760);
+        AutoScaleMode = AutoScaleMode.Dpi;
+        MinimumSize = new Size(960, 680);
+        Size = new Size(1280, 820);
         StartPosition = FormStartPosition.CenterScreen;
         BackColor = Color.White;
         FormClosing += OnFormClosing;
@@ -48,47 +51,129 @@ public sealed class MainForm : Form
 
     private void BuildLayout()
     {
-        var nav = new Panel { Dock = DockStyle.Left, Width = 220, BackColor = Surface, Padding = new Padding(24, 28, 16, 24) };
-        nav.Controls.Add(new Label { Text = "MOTION\nVIDEO PIPELINE", AutoSize = true, Font = new Font("Segoe UI", 14, FontStyle.Bold), ForeColor = Ink, Location = new Point(24, 24) });
+        var nav = new Panel { Dock = DockStyle.Left, Width = 208, BackColor = Surface, Padding = new Padding(18, 24, 14, 20) };
+        var brand = new Label { Text = "MOTION\nVIDEO PIPELINE", Dock = DockStyle.Top, Height = 62, Font = new Font("Segoe UI", 13, FontStyle.Bold), ForeColor = Ink };
+        var navList = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, Padding = new Padding(0, 14, 0, 0), BackColor = Color.Transparent };
+        nav.Controls.Add(navList);
+        nav.Controls.Add(brand);
         var items = new[] { ("项目", (Action)ShowHome), ("流程", (Action)ShowPipeline), ("内容", (Action)ShowContent), ("音色与音乐", (Action)ShowVoices), ("预览与质检", (Action)ShowPreview), ("设置", (Action)ShowSettings) };
-        var y = 110;
         foreach (var item in items)
         {
-            var button = new Button { Text = item.Item1, FlatStyle = FlatStyle.Flat, TextAlign = ContentAlignment.MiddleLeft, Width = 176, Height = 42, Location = new Point(20, y), ForeColor = Muted, BackColor = Color.Transparent, Font = new Font("Segoe UI", 10) };
+            var button = new Button { Text = item.Item1, FlatStyle = FlatStyle.Flat, TextAlign = ContentAlignment.MiddleLeft, Width = 170, Height = 42, Margin = new Padding(0, 0, 0, 4), ForeColor = Muted, BackColor = Color.Transparent, Font = new Font("Segoe UI", 10) };
             button.FlatAppearance.BorderSize = 0;
             button.Click += (_, _) => item.Item2();
-            nav.Controls.Add(button);
-            y += 44;
+            navList.Controls.Add(button);
         }
-        var header = new Panel { Dock = DockStyle.Top, Height = 82, Padding = new Padding(32, 25, 32, 16), BackColor = Color.White };
-        pageTitle.AutoSize = true; pageTitle.Font = new Font("Segoe UI", 20, FontStyle.Bold); pageTitle.ForeColor = Ink; header.Controls.Add(pageTitle);
-        workerStatus.AutoSize = true; workerStatus.Text = "单例已锁定 · Worker 未启动"; workerStatus.ForeColor = Muted; workerStatus.Location = new Point(32, 54); header.Controls.Add(workerStatus);
-        content.Dock = DockStyle.Fill; content.Padding = new Padding(32, 12, 32, 24); content.BackColor = Color.White;
-        var status = new StatusStrip(); status.Items.Add(new ToolStripStatusLabel("M1 · 固定 artifacts/MotionVideoPipeline.exe")); status.Items.Add(new ToolStripStatusLabel { Spring = true }); status.Items.Add(new ToolStripStatusLabel("1080×1920 · 30fps · ≤300秒"));
+        nav.Resize += (_, _) =>
+        {
+            foreach (Control control in navList.Controls) control.Width = Math.Max(120, navList.ClientSize.Width - navList.Padding.Horizontal - 2);
+        };
+
+        var header = new TableLayoutPanel { Dock = DockStyle.Top, Height = 84, ColumnCount = 1, RowCount = 2, Padding = new Padding(24, 14, 24, 8), BackColor = Color.White };
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        header.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
+        header.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        pageTitle.Dock = DockStyle.Fill; pageTitle.Font = new Font("Segoe UI", 20, FontStyle.Bold); pageTitle.ForeColor = Ink; pageTitle.AutoEllipsis = true;
+        workerStatus.Dock = DockStyle.Fill; workerStatus.Text = "单例已锁定 · Worker 未启动"; workerStatus.ForeColor = Muted; workerStatus.AutoEllipsis = true;
+        header.Controls.Add(pageTitle, 0, 0); header.Controls.Add(workerStatus, 0, 1);
+
+        content.Dock = DockStyle.Fill; content.Padding = new Padding(24, 12, 24, 20); content.BackColor = Color.White; content.AutoScroll = true;
+        content.Resize += (_, _) => ResizeActivePage();
+        var status = new StatusStrip();
+        status.Items.Add(new ToolStripStatusLabel("M1 · artifacts/MotionVideoPipeline.exe") { Spring = true, TextAlign = ContentAlignment.MiddleLeft });
+        status.Items.Add(new ToolStripStatusLabel("1080×1920 · 30fps") { Spring = false });
         Controls.Add(content); Controls.Add(header); Controls.Add(nav); Controls.Add(status);
     }
 
-    private static Label LabelFor(string text, int x, int y) => new() { Text = text, AutoSize = true, ForeColor = Muted, Location = new Point(x, y) };
-    private static TextBox TextInput(string value, int x, int y, int width = 260) => new() { Text = value, Width = width, Location = new Point(x, y), BorderStyle = BorderStyle.FixedSingle };
+    private static Label BlockLabel(string text, Color color, int height) => new() { Text = text, AutoSize = false, Dock = DockStyle.Fill, Height = height, ForeColor = color, Padding = new Padding(0, 4, 0, 4), UseCompatibleTextRendering = true };
+
+    private static Panel FieldGroup(string labelText, Control input, int width = 280)
+    {
+        var field = new Panel { Width = width, Height = 64, Margin = new Padding(0, 4, 16, 4) };
+        var label = new Label { Text = labelText, AutoSize = false, AutoEllipsis = true, Width = width, Height = 20, ForeColor = Muted, Location = new Point(0, 0) };
+        input.Location = new Point(0, 24);
+        input.Width = width;
+        input.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top;
+        field.Controls.Add(input);
+        field.Controls.Add(label);
+        return field;
+    }
+
+    private static TableLayoutPanel PageTable(int rows)
+    {
+        var page = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, ColumnCount = 1, RowCount = rows, Margin = new Padding(0), Padding = new Padding(0) };
+        page.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        for (var i = 0; i < rows; i++) page.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        return page;
+    }
+
+    private void ResetPage()
+    {
+        content.SuspendLayout();
+        content.Controls.Clear();
+        activePage = null;
+        content.AutoScrollPosition = Point.Empty;
+        content.ResumeLayout(true);
+    }
+
+    private void AttachPage(Control page)
+    {
+        page.Dock = DockStyle.Top;
+        page.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+        activePage = page;
+        content.Controls.Add(page);
+        ResizeActivePage();
+        page.BringToFront();
+    }
+
+    private void ResizeActivePage()
+    {
+        if (activePage is null || content.ClientSize.Width <= 0) return;
+        var scrollbarWidth = content.VerticalScroll.Visible ? SystemInformation.VerticalScrollBarWidth : 0;
+        activePage.Width = Math.Max(0, content.ClientSize.Width - content.Padding.Horizontal - scrollbarWidth);
+    }
 
     private void ShowHome()
     {
-        pageTitle.Text = "项目 · 周榜自动生产"; content.Controls.Clear();
-        content.Controls.Add(LabelFor("固定来源", 0, 8)); content.Controls.Add(new Label { Text = GitHubTrendingSourceAdapter.Url, AutoSize = true, ForeColor = Ink, Location = new Point(100, 8) });
-        content.Controls.Add(LabelFor("批量数量 N", 0, 52)); batchCount = new NumericUpDown { Minimum = 1, Maximum = 100, Value = 2, Width = 90, Location = new Point(100, 48) }; content.Controls.Add(batchCount);
-        content.Controls.Add(LabelFor("最低 Star", 220, 52)); minStars = new NumericUpDown { Minimum = 0, Maximum = 1000000000, Increment = 100, Width = 120, Location = new Point(290, 48) }; content.Controls.Add(minStars);
-        content.Controls.Add(LabelFor("语言过滤（逗号分隔）", 440, 52)); languageFilter = TextInput("", 590, 48, 180); content.Controls.Add(languageFilter);
-        content.Controls.Add(LabelFor("排除已生成天数", 790, 52)); excludeGeneratedDays = new NumericUpDown { Minimum = 0, Maximum = 3650, Value = 30, Width = 80, Location = new Point(900, 48) }; content.Controls.Add(excludeGeneratedDays);
-        content.Controls.Add(LabelFor("领域包", 0, 96)); content.Controls.Add(new Label { Text = "github-open-source（产品内置）", AutoSize = true, ForeColor = Ink, Location = new Point(100, 96) });
-        content.Controls.Add(LabelFor("模型 Base URL", 0, 140)); modelBaseUrl = TextInput(ConfiguredEnvironment("MVP_LLM_BASE_URL"), 100, 136, 300); content.Controls.Add(modelBaseUrl);
-        content.Controls.Add(LabelFor("模型", 420, 140)); modelName = TextInput(ConfiguredEnvironment("MVP_LLM_MODEL"), 470, 136, 220); content.Controls.Add(modelName);
-        content.Controls.Add(LabelFor("Key 环境变量", 710, 140)); apiKeyEnv = TextInput("MVP_LLM_API_KEY", 800, 136, 180); content.Controls.Add(apiKeyEnv);
-        content.Controls.Add(LabelFor("音色", 0, 184)); voice = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 160, Location = new Point(100, 180) }; voice.Items.Add("zf_001 · 中文女声"); voice.SelectedIndex = 0; content.Controls.Add(voice);
-        content.Controls.Add(LabelFor("BGM 策略", 290, 184)); bgmPolicy = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 180, Location = new Point(370, 180) }; bgmPolicy.Items.AddRange(["自动，无 BGM 也继续", "仅有 BGM 才导出"]); bgmPolicy.SelectedIndex = 0; content.Controls.Add(bgmPolicy);
-        startButton = new Button { Text = "开始自动生产", Width = 170, Height = 40, Location = new Point(0, 236), BackColor = Blue, ForeColor = Color.White, FlatStyle = FlatStyle.Flat }; startButton.Click += async (_, _) => await StartBatchAsync(); content.Controls.Add(startButton);
-        content.Controls.Add(new Label { Text = "资料、核验、讲稿、配音、动画、字幕、质检和导出由流水线自动完成；模型配置缺失时真实任务会阻断。", AutoSize = true, ForeColor = Muted, Location = new Point(190, 249) });
-        projectGrid.Location = new Point(0, 300); projectGrid.Width = Math.Max(800, content.ClientSize.Width - 32); projectGrid.Height = 260; projectGrid.ReadOnly = true; projectGrid.AllowUserToAddRows = false; projectGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill; projectGrid.BackgroundColor = Color.White; content.Controls.Add(projectGrid);
-        logBox.Location = new Point(0, 570); logBox.Width = Math.Max(800, content.ClientSize.Width - 32); logBox.Height = 90; logBox.Multiline = true; logBox.ScrollBars = ScrollBars.Vertical; logBox.ReadOnly = true; logBox.BackColor = Color.White; content.Controls.Add(logBox);
+        pageTitle.Text = "项目 · 周榜自动生产";
+        ResetPage();
+        var page = PageTable(5);
+        var source = new TableLayoutPanel { Dock = DockStyle.Fill, Height = 34, ColumnCount = 2, Margin = new Padding(0, 0, 0, 8) };
+        source.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 84)); source.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        source.Controls.Add(new Label { Text = "固定来源", Dock = DockStyle.Fill, ForeColor = Muted, TextAlign = ContentAlignment.MiddleLeft }, 0, 0);
+        source.Controls.Add(new Label { Text = GitHubTrendingSourceAdapter.Url, Dock = DockStyle.Fill, AutoEllipsis = true, ForeColor = Ink, TextAlign = ContentAlignment.MiddleLeft }, 1, 0);
+        page.Controls.Add(source, 0, 0);
+
+        var fields = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, FlowDirection = FlowDirection.LeftToRight, WrapContents = true, Margin = new Padding(0), Padding = new Padding(0, 0, 0, 8) };
+        batchCount = new NumericUpDown { Minimum = 1, Maximum = 100, Value = 2, Width = 110 };
+        minStars = new NumericUpDown { Minimum = 0, Maximum = 1000000000, Increment = 100, Width = 140, ThousandsSeparator = true };
+        languageFilter = new TextBox { Width = 280, BorderStyle = BorderStyle.FixedSingle };
+        excludeGeneratedDays = new NumericUpDown { Minimum = 0, Maximum = 3650, Value = 30, Width = 120 };
+        var domain = new Label { Text = "github-open-source（产品内置）", BorderStyle = BorderStyle.FixedSingle, TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true, Height = 24 };
+        modelBaseUrl = new TextBox { Text = ConfiguredEnvironment("MVP_LLM_BASE_URL"), Width = 360, BorderStyle = BorderStyle.FixedSingle };
+        modelName = new TextBox { Text = ConfiguredEnvironment("MVP_LLM_MODEL"), Width = 280, BorderStyle = BorderStyle.FixedSingle };
+        apiKeyEnv = new TextBox { Text = "MVP_LLM_API_KEY", Width = 280, BorderStyle = BorderStyle.FixedSingle };
+        voice = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 280 }; voice.Items.Add("zf_001 · 中文女声"); voice.SelectedIndex = 0;
+        bgmPolicy = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 280 }; bgmPolicy.Items.AddRange(["自动，无 BGM 也继续", "仅有 BGM 才导出"]); bgmPolicy.SelectedIndex = 0;
+        fields.Controls.Add(FieldGroup("批量数量 N", batchCount)); fields.Controls.Add(FieldGroup("最低 Star", minStars));
+        fields.Controls.Add(FieldGroup("语言过滤（逗号分隔）", languageFilter)); fields.Controls.Add(FieldGroup("排除已生成天数", excludeGeneratedDays));
+        fields.Controls.Add(FieldGroup("领域包", domain)); fields.Controls.Add(FieldGroup("模型 Base URL", modelBaseUrl, 360));
+        fields.Controls.Add(FieldGroup("模型", modelName)); fields.Controls.Add(FieldGroup("Key 环境变量", apiKeyEnv));
+        fields.Controls.Add(FieldGroup("音色", voice)); fields.Controls.Add(FieldGroup("BGM 策略", bgmPolicy));
+        page.Controls.Add(fields, 0, 1);
+
+        var startRow = new TableLayoutPanel { Dock = DockStyle.Fill, Height = 58, ColumnCount = 2, Margin = new Padding(0, 4, 0, 10) };
+        startRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 180)); startRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        startButton = new Button { Text = "开始自动生产", Dock = DockStyle.Fill, BackColor = Blue, ForeColor = Color.White, FlatStyle = FlatStyle.Flat, Margin = new Padding(0, 4, 12, 4) };
+        startButton.Click += async (_, _) => await StartBatchAsync(); startRow.Controls.Add(startButton, 0, 0);
+        startRow.Controls.Add(BlockLabel("资料、核验、讲稿、配音、动画、字幕、质检和导出由流水线自动完成；模型配置缺失时真实任务会阻断。", Muted, 50), 1, 0);
+        page.Controls.Add(startRow, 0, 2);
+
+        projectGrid.Dock = DockStyle.Fill; projectGrid.ReadOnly = true; projectGrid.AllowUserToAddRows = false; projectGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill; projectGrid.BackgroundColor = Color.White; projectGrid.RowHeadersVisible = false; projectGrid.Margin = new Padding(0, 0, 0, 10);
+        page.RowStyles[3] = new RowStyle(SizeType.Absolute, 260); page.Controls.Add(projectGrid, 0, 3);
+        logBox.Dock = DockStyle.Fill; logBox.Multiline = true; logBox.ScrollBars = ScrollBars.Vertical; logBox.ReadOnly = true; logBox.BackColor = Color.White; logBox.Margin = new Padding(0);
+        page.RowStyles[4] = new RowStyle(SizeType.Absolute, 110); page.Controls.Add(logBox, 0, 4);
+        AttachPage(page);
     }
 
     private async Task StartBatchAsync()
@@ -132,11 +217,57 @@ public sealed class MainForm : Form
     private void AppendLog(string text) { if (IsDisposed) return; BeginInvoke(() => logBox.AppendText($"[{DateTime.Now:HH:mm:ss}] {text}\r\n")); }
     private void UpdateProjects(BatchTaskState state) { if (IsDisposed) return; BeginInvoke(() => projectGrid.DataSource = state.Projects.Select(x => new { x.ProjectId, x.RepositoryUrl, Status = x.Status.ToString(), x.Error }).ToList()); }
 
-    private void ShowPipeline() { pageTitle.Text = "流程"; content.Controls.Clear(); content.Controls.Add(new Label { Text = "周榜 → 资料 → 证据 → 五格讲稿 → Kokoro → 字幕 → CanvasWorld → 质检 → 导出", AutoSize = true, ForeColor = Ink, Location = new Point(0, 12) }); content.Controls.Add(new Label { Text = "每个 ProjectRun 独立推进；失败项目进入 quarantine，不阻塞其他项目。", AutoSize = true, ForeColor = Muted, Location = new Point(0, 52) }); }
-    private void ShowContent() { pageTitle.Text = "内容"; content.Controls.Clear(); content.Controls.Add(new Label { Text = "五格故事板：开场 | 原理 | 案例 | 应用 | 结论（hook 只在结论最后一个 beat）", AutoSize = true, ForeColor = Ink, Location = new Point(0, 12) }); content.Controls.Add(new Label { Text = "EvidencePack、讲稿、发音文本、字幕和 visualActions 在 runs/{projectId}/ 中持久化。", AutoSize = true, ForeColor = Muted, Location = new Point(0, 52) }); }
-    private void ShowVoices() { pageTitle.Text = "音色与音乐"; content.Controls.Clear(); content.Controls.Add(new Label { Text = "所有显式音色在配音前预缓存；试听仅读取本地 previewAudioPath。", AutoSize = true, ForeColor = Muted, Location = new Point(0, 12) }); content.Controls.Add(new DataGridView { Location = new Point(0, 56), Width = 780, Height = 180, ReadOnly = true, AllowUserToAddRows = false, AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill, DataSource = new[] { new { VoiceId = "zf_001", DisplayName = "中文女声 · ZF 001", Status = "由 VoiceCatalogPreloader 检查" } } }); content.Controls.Add(new Label { Text = "BGM 缺失时自动无 BGM 导出，并在 quality-report.json 写入 warning。", AutoSize = true, ForeColor = Muted, Location = new Point(0, 260) }); }
-    private void ShowPreview() { pageTitle.Text = "预览与质检"; content.Controls.Clear(); var canvas = new Panel { Width = 324, Height = 576, Location = new Point(0, 10), BackColor = ColorTranslator.FromHtml("#050816"), BorderStyle = BorderStyle.FixedSingle }; canvas.Paint += (_, e) => { using var pen = new Pen(ColorTranslator.FromHtml("#4CC9F0"), 1); e.Graphics.DrawRectangle(pen, 22, 48, 280, 480); e.Graphics.DrawString("CanvasWorld\n1080×1920", new Font("Segoe UI", 12), Brushes.White, 105, 270); }; content.Controls.Add(canvas); content.Controls.Add(new Label { Text = "安全区：x=72..1008，顶部刘海避让；质量报告检查尺寸、帧率、字幕、证据、发音和音频峰值。", AutoSize = true, ForeColor = Muted, Location = new Point(350, 28) }); }
-    private void ShowSettings() { pageTitle.Text = "设置"; content.Controls.Clear(); content.Controls.Add(new Label { Text = "运行环境与发布", AutoSize = true, Font = new Font("Segoe UI", 16, FontStyle.Bold), ForeColor = Ink, Location = new Point(0, 10) }); content.Controls.Add(new Label { Text = "Node.js / Python / Kokoro / Remotion / FFmpeg 使用新项目独立配置；缺失项由环境诊断报告，不从旧项目复制。", AutoSize = true, ForeColor = Muted, Location = new Point(0, 52) }); content.Controls.Add(new Label { Text = Path.Combine(FindWorkspaceRoot(), "artifacts", "MotionVideoPipeline.exe"), AutoSize = true, ForeColor = Ink, Location = new Point(0, 112) }); }
+    private void ShowPipeline()
+    {
+        pageTitle.Text = "流程"; ResetPage();
+        var page = PageTable(2);
+        page.Controls.Add(BlockLabel("周榜 → 资料 → 证据 → 五格讲稿 → Kokoro → 字幕 → CanvasWorld → 质检 → 导出", Ink, 52), 0, 0);
+        page.Controls.Add(BlockLabel("每个 ProjectRun 独立推进；失败项目进入 quarantine，不阻塞其他项目。", Muted, 44), 0, 1);
+        AttachPage(page);
+    }
+
+    private void ShowContent()
+    {
+        pageTitle.Text = "内容"; ResetPage();
+        var page = PageTable(2);
+        page.Controls.Add(BlockLabel("五格故事板：开场 | 原理 | 案例 | 应用 | 结论（hook 只在结论最后一个 beat）", Ink, 54), 0, 0);
+        page.Controls.Add(BlockLabel("EvidencePack、讲稿、发音文本、字幕和 visualActions 在 runs/{projectId}/ 中持久化。", Muted, 48), 0, 1);
+        AttachPage(page);
+    }
+
+    private void ShowVoices()
+    {
+        pageTitle.Text = "音色与音乐"; ResetPage();
+        var page = PageTable(3);
+        page.Controls.Add(BlockLabel("所有显式音色在配音前预缓存；试听仅读取本地 previewAudioPath。", Muted, 50), 0, 0);
+        var grid = new DataGridView { Dock = DockStyle.Fill, Height = 180, ReadOnly = true, AllowUserToAddRows = false, AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill, RowHeadersVisible = false, BackgroundColor = Color.White, DataSource = new[] { new { VoiceId = "zf_001", DisplayName = "中文女声 · ZF 001", Status = "由 VoiceCatalogPreloader 检查" } } };
+        page.RowStyles[1] = new RowStyle(SizeType.Absolute, 180); page.Controls.Add(grid, 0, 1);
+        page.Controls.Add(BlockLabel("BGM 缺失时自动无 BGM 导出，并在 quality-report.json 写入 warning。", Muted, 44), 0, 2);
+        AttachPage(page);
+    }
+
+    private void ShowPreview()
+    {
+        pageTitle.Text = "预览与质检"; ResetPage();
+        var page = PageTable(1);
+        var preview = new TableLayoutPanel { Dock = DockStyle.Fill, Height = 500, ColumnCount = 2, RowCount = 1, Margin = new Padding(0) };
+        preview.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 282)); preview.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        var canvas = new Panel { Width = 270, Height = 480, BackColor = ColorTranslator.FromHtml("#050816"), BorderStyle = BorderStyle.FixedSingle, Margin = new Padding(0, 0, 12, 0) };
+        canvas.Paint += (_, e) => { using var pen = new Pen(ColorTranslator.FromHtml("#4CC9F0"), 1); var insetX = canvas.Width / 14; var insetY = canvas.Height / 12; e.Graphics.DrawRectangle(pen, insetX, insetY, canvas.Width - insetX * 2, canvas.Height - insetY * 2); e.Graphics.DrawString("CanvasWorld\n1080×1920", new Font("Segoe UI", 12), Brushes.White, 80, 225); };
+        preview.Controls.Add(canvas, 0, 0);
+        preview.Controls.Add(BlockLabel("安全区：x=72..1008，顶部刘海避让。质量报告检查尺寸、帧率、字幕、证据、发音和音频峰值。", Muted, 120), 1, 0);
+        page.Controls.Add(preview, 0, 0); AttachPage(page);
+    }
+
+    private void ShowSettings()
+    {
+        pageTitle.Text = "设置"; ResetPage();
+        var page = PageTable(3);
+        page.Controls.Add(BlockLabel("运行环境与发布", Ink, 42), 0, 0);
+        page.Controls.Add(BlockLabel("Node.js / Python / Kokoro / Remotion / FFmpeg 使用新项目独立配置；缺失项由环境诊断报告，不从旧项目复制。", Muted, 64), 0, 1);
+        page.Controls.Add(BlockLabel(Path.Combine(FindWorkspaceRoot(), "artifacts", "MotionVideoPipeline.exe"), Ink, 44), 0, 2);
+        AttachPage(page);
+    }
 
     private void OnFormClosing(object? sender, FormClosingEventArgs e)
     {
