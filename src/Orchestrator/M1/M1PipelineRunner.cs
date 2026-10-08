@@ -227,7 +227,7 @@ public sealed class M1PipelineRunner
         var request = WorkerMessage.Create(Guid.NewGuid().ToString("N"), "content-runtime", "0.1.0", WorkerMessageTypes.Request, requestPayload);
         async Task<JsonElement> ExecuteAsync()
         {
-            var messages = await workers.RunAsync("node", $"--experimental-strip-types \"{script}\"", request, options.WorkerTimeout ?? TimeSpan.FromMinutes(2), cancellationToken);
+            var messages = await workers.RunAsync("node", $"--use-env-proxy --experimental-strip-types \"{script}\"", request, options.WorkerTimeout ?? TimeSpan.FromMinutes(2), cancellationToken);
             return ExtractResult(messages, operation);
         }
         var stage = operation is "research_plan" or "script" ? M1PipelineStage.AiPlanning : operation == "collect_sources" ? M1PipelineStage.SourceCollection : (M1PipelineStage?)null;

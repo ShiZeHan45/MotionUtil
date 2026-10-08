@@ -52,6 +52,24 @@ public class CoreTests
     }
 
     [TestMethod]
+    public void Node_content_worker_uses_environment_proxy_mode()
+    {
+        var source = File.ReadAllText(Path.Combine(FindWorkspace(), "src", "Orchestrator", "M1", "M1PipelineRunner.cs"));
+        StringAssert.Contains(source, "--use-env-proxy --experimental-strip-types");
+    }
+
+    [TestMethod]
+    public void Proxy_server_parser_normalizes_single_and_split_entries()
+    {
+        var single = SystemNetwork.ParseProxyServer("127.0.0.1:7890");
+        Assert.AreEqual("http://127.0.0.1:7890", single["http"]);
+        Assert.AreEqual("http://127.0.0.1:7890", single["https"]);
+        var split = SystemNetwork.ParseProxyServer("http=127.0.0.1:8080;https=https://proxy.example:8443");
+        Assert.AreEqual("http://127.0.0.1:8080", split["http"]);
+        Assert.AreEqual("https://proxy.example:8443", split["https"]);
+    }
+
+    [TestMethod]
     public async Task Atomic_writer_replaces_target()
     {
         var root = Path.Combine(Path.GetTempPath(), "mvp-" + Guid.NewGuid().ToString("N"));
@@ -210,5 +228,12 @@ public class CoreTests
         public string SourceId => "fixture-weekly";
         public Task<RankingFetchResult> FetchAsync(CancellationToken cancellationToken = default) => Task.FromResult(new RankingFetchResult(System.Net.HttpStatusCode.OK, "fixture://weekly", "fixture-ranking", DateTimeOffset.UtcNow));
         public RankingSnapshot Parse(RankingFetchResult response) => new("fixture-snapshot", SourceId, response.Url, "weekly", response.FetchedAt, items);
+    }
+
+    private static string FindWorkspace()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "voice-catalog.json"))) directory = directory.Parent;
+        return directory?.FullName ?? throw new DirectoryNotFoundException("无法定位新项目工作区");
     }
 }

@@ -127,6 +127,7 @@ public sealed class WorkerProcessManager
             UseShellExecute = false,
             CreateNoWindow = true
         };
+        SystemNetwork.ConfigureNodeProxy(startInfo);
         using var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
         if (!process.Start()) throw new InvalidOperationException($"无法启动 Worker: {executable}");
         await process.StandardInput.WriteLineAsync(request.ToJsonLine());
@@ -163,4 +164,5 @@ public sealed class WorkerProcessManager
     {
         try { if (!process.HasExited) process.Kill(true); } catch { /* 进程已退出 */ }
     }
+
 }

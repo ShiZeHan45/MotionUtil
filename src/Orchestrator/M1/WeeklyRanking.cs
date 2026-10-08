@@ -48,8 +48,7 @@ public sealed class GitHubTrendingSourceAdapter : IRankingSourceAdapter
 
     public GitHubTrendingSourceAdapter(HttpClient? client = null)
     {
-        this.client = client ?? new HttpClient();
-        this.client.DefaultRequestHeaders.UserAgent.ParseAdd("MotionVideoPipeline/1.0");
+        this.client = client ?? SystemNetwork.CreateHttpClient("MotionVideoPipeline/1.0");
     }
 
     public async Task<RankingFetchResult> FetchAsync(CancellationToken cancellationToken = default)
@@ -79,8 +78,7 @@ public sealed class GitHubSearchWeeklySourceAdapter : IRankingSourceAdapter
 
     public GitHubSearchWeeklySourceAdapter(HttpClient? client = null, string? searchUrl = null)
     {
-        this.client = client ?? new HttpClient();
-        this.client.DefaultRequestHeaders.UserAgent.ParseAdd("MotionVideoPipeline/1.0");
+        this.client = client ?? SystemNetwork.CreateHttpClient("MotionVideoPipeline/1.0");
         this.searchUrl = searchUrl ?? "https://api.github.com/search/repositories?q=pushed:%3E%3D{weekStart}&sort=stars&order=desc&per_page=100";
     }
 
