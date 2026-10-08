@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { buildTimeline, toSrt, type TimelineBeat } from './m1/timeline.ts';
@@ -30,15 +31,15 @@ await writeFile(resolve(runDirectory, 'subtitles.srt'), toSrt(timeline.cues), 'u
 await writeFile(resolve(runDirectory, 'evidence-pack.json'), JSON.stringify(input.evidence ?? { claims: [], sources: [] }, null, 2), 'utf8');
 await writeFile(resolve(runDirectory, 'audio-manifest.json'), JSON.stringify(input.audioManifest, null, 2), 'utf8');
 
-const ffmpeg = process.env.MVP_FFMPEG_PATH || 'ffmpeg';
-const ffmpegProbe = spawnSync(ffmpeg, ['-version'], { stdio: 'ignore', windowsHide: true });
-let videoReady = false;
-if (ffmpegProbe.status === 0) {
-  const seconds = Math.max(1, timeline.totalDurationInFrames / 30);
-  const videoPath = resolve(runDirectory, 'video.mp4');
-  const render = spawnSync(ffmpeg, ['-y', '-loop', '1', '-i', resolve(runDirectory, 'storyboard.svg'), '-t', seconds.toFixed(3), '-r', '30', '-pix_fmt', 'yuv420p', videoPath], { stdio: 'ignore', windowsHide: true });
-  videoReady = render.status === 0 && existsSync(videoPath);
-}
+const rendererRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const projectRoot = resolve(rendererRoot, '..');
+const renderInputPath = resolve(runDirectory, 'render-input.json');
+await writeFile(renderInputPath, JSON.stringify({ ...input, runDirectory, subtitleTimeline: { cues: timeline.cues } }, null, 2), 'utf8');
+const renderScript = resolve(rendererRoot, 'src', 'render-m1-remotion.ts');
+const render = spawnSync(process.execPath, ['--experimental-strip-types', renderScript, renderInputPath], { cwd: projectRoot, encoding: 'utf8', windowsHide: true });
+const videoReady = render.status === 0 && existsSync(resolve(runDirectory, 'video.mp4'));
+if (render.stderr) process.stderr.write(render.stderr);
+if (render.stdout) process.stdout.write(render.stdout);
 
 const quality = runQualityGate({
   projectId: input.projectId,
@@ -65,7 +66,9 @@ const openingValid = opening?.spokenText === expectedOpening && opening?.display
 quality.checks.push({ ruleId: 'FIXED_OPENING_COPY', severity: 'block', status: openingValid ? 'pass' : 'fail', actual: opening?.spokenText ?? 'missing', expected: expectedOpening, file: 'storyboard.json', suggestedFix: '使用固定 GitHub 开场话术并将项目名与中文单位 Star 数注入。' });
 if (!openingValid) quality.status = 'fail';
 if (!videoReady) {
-  quality.checks.push({ ruleId: 'FFMPEG_MISSING', severity: 'block', status: 'fail', actual: ffmpeg, expected: '可用的独立 FFmpeg 运行时', file: 'video.mp4', suggestedFix: '配置 MVP_FFMPEG_PATH 或安装项目声明的媒体运行时。' });
+  const diagnostics = (render.stderr || render.stdout || `renderer exit code ${render.status}`).slice(0, 1200);
+  const ffmpegMissing = /ffmpeg/i.test(diagnostics) && /(not found|enoent|missing|cannot find)/i.test(diagnostics);
+  quality.checks.push({ ruleId: ffmpegMissing ? 'FFMPEG_MISSING' : 'REMOTION_RENDER_FAILED', severity: 'block', status: 'fail', actual: diagnostics, expected: 'Remotion renderMedia() 生成可解码的 video.mp4', file: 'video.mp4', suggestedFix: ffmpegMissing ? '确认新项目依赖已安装；必要时设置 MVP_FFMPEG_PATH 指向可用 FFmpeg。' : '查看 renderer 诊断并修复 Composition 或渲染环境。' });
   quality.status = 'fail';
 }
 await writeFile(resolve(runDirectory, 'quality-report.json'), JSON.stringify(quality, null, 2), 'utf8');

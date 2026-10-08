@@ -8,6 +8,7 @@ node_modules/
 .pnpm-store/
 .turbo/
 .cache/
+renderer/public/
 
 # Python environments and caches
 .venv/
