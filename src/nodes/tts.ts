@@ -13,6 +13,20 @@ type KokoroOutput = { projects: RenderProject[] };
 const RESULT_PREFIX = "KOKORO_RESULT:";
 const MAX_VIDEO_DURATION_MS = 180_000;
 
+function expandBeatNarration(script: ProjectScript): Array<NarrationSegment & { spokenText: string }> {
+  return script.narrationSegments.flatMap((segment) => {
+    if (segment.scene !== "concept" || !script.conceptStoryboard?.beats.length) {
+      return [{ ...segment, spokenText: segment.spokenText ?? segment.text }];
+    }
+    return script.conceptStoryboard.beats.map((beat) => ({
+      scene: "concept" as const,
+      beatId: beat.id,
+      text: beat.text,
+      spokenText: beat.spokenText ?? beat.text,
+    }));
+  });
+}
+
 function inspectPcmWav(buffer: Buffer, filename: string): WavInfo {
   if (buffer.toString("ascii", 0, 4) !== "RIFF" || buffer.toString("ascii", 8, 12) !== "WAVE") {
     throw new Error(`Kokoro 输出不是有效的 RIFF/WAVE 文件：${filename}`);
@@ -114,7 +128,7 @@ export async function synthesizeScripts(scripts: ProjectScript[], audioDirectory
   const substitutions = Object.entries(pronunciation).sort(([a], [b]) => b.length - a.length);
   const prepared: ScriptWithSpokenText[] = scripts.map((script) => ({
     ...script,
-    narrationSegments: script.narrationSegments.map((segment) => {
+    narrationSegments: expandBeatNarration(script).map((segment) => {
       let spokenText = segment.spokenText ?? segment.text;
       for (const [source, replacement] of substitutions) spokenText = spokenText.replace(new RegExp(escapeRegExp(source), "gi"), replacement);
       return { ...segment, spokenText };
@@ -132,8 +146,9 @@ export async function synthesizeScripts(scripts: ProjectScript[], audioDirectory
     if (!source || project.repo.toLowerCase() !== source.repo.toLowerCase()) {
       throw new Error(`Kokoro 返回顺序或仓库不匹配：${project.repo}`);
     }
-    if (project.narrationSegments.length !== source.narrationSegments.length) {
-      throw new Error(`Kokoro 返回 ${project.repo} 的场景数错误`);
+    const expectedSegments = source.narrationSegments.reduce((total, segment) => total + (segment.scene === "concept" && source.conceptStoryboard?.beats.length ? source.conceptStoryboard.beats.length : 1), 0);
+    if (project.narrationSegments.length !== expectedSegments) {
+      throw new Error(`Kokoro 返回 ${project.repo} 的节拍数错误：预期 ${expectedSegments}，实际 ${project.narrationSegments.length}`);
     }
     console.log(`[节点 4] ${projectIndex + 1}/${projects.length} ${project.repo}`);
     for (const segment of project.narrationSegments) {

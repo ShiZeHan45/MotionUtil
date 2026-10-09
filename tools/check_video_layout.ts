@@ -51,7 +51,7 @@ browser.newPage = async (...args) => {
     try {
       const entries = await page.evaluate(() => Array.from(document.querySelectorAll<HTMLElement>("[data-core-text]")).map(el => ({
         name:el.dataset.coreText!,text:el.dataset.fullText!,shown:el.innerText,pages:Number(el.dataset.pageCount),page:Number(el.dataset.pageIndex),fontSize:getComputedStyle(el).fontSize,
-        ...(el.scrollHeight>el.clientHeight+1||el.scrollWidth>el.clientWidth+1?{error:"overflow"}:{}),
+        ...(el.scrollHeight>el.clientHeight+1||el.scrollWidth>el.clientWidth+1?{error:"overflow",scrollWidth:el.scrollWidth,clientWidth:el.clientWidth,scrollHeight:el.scrollHeight,clientHeight:el.clientHeight}:{}),
       })));
       if(entries.length) results.push({...active,entries});
     } finally { await close(...closeArgs); }

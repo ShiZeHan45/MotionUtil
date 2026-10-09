@@ -1,6 +1,6 @@
 import React from "react";
 import { AbsoluteFill, Audio, Img, Sequence, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
-import type { RenderProject, TrendingRepo } from "../types";
+import type { ConceptBeat, ConceptObject, ConceptStoryboard, RenderProject, TrendingRepo } from "../types";
 import { isBadgeAsset } from "../lib/visual-assets";
 import { LayoutGuard, TextBlock, textLayout, textProgress, VIDEO_FONT } from "./text-layout";
 
@@ -259,6 +259,132 @@ function StoryNode({ width, height, label, detail, color, visible, icon, progres
   </div>;
 }
 
+const conceptColors = [palette.coral, palette.teal, palette.yellow];
+
+function fallbackConceptStoryboard(project: RenderProject): ConceptStoryboard {
+  const isInterop = /(?:ps5|编译|转换|重链接|shader|着色器|格式|兼容|运行库|库)/iu.test(`${project.title} ${project.oneLineSummary} ${project.features.join(" ")}`);
+  const objects: ConceptObject[] = isInterop
+    ? [
+        { id: "input", kind: "input", label: "目标程序", detail: "PS5 可执行文件", x: 17, y: 42 },
+        { id: "transform", kind: "transform", label: "转换层", detail: "重链接器与重编译器", x: 50, y: 42 },
+        { id: "system", kind: "system", label: "目标环境", detail: "Linux / Windows", x: 83, y: 30 },
+        { id: "context", kind: "context", label: "系统库与图形接口", detail: "PRX 库 · Vulkan / SPIR-V", x: 83, y: 65 },
+        { id: "result", kind: "result", label: "可验证结果", detail: "运行状态与兼容性列表", x: 50, y: 80 },
+      ]
+    : [
+        { id: "problem", kind: "problem", label: "现实问题", detail: project.problem, x: 18, y: 42 },
+        { id: "input", kind: "input", label: "输入", detail: project.exampleScenario, x: 18, y: 68 },
+        { id: "transform", kind: "transform", label: "核心处理", detail: project.features[0] ?? project.oneLineSummary, x: 50, y: 42 },
+        { id: "context", kind: "context", label: "关键能力", detail: project.features.slice(1, 3).join(" · ") || project.usage, x: 82, y: 42 },
+        { id: "result", kind: "result", label: "结果", detail: project.exampleResult, x: 82, y: 72 },
+      ];
+  const beats: ConceptBeat[] = [
+    { id: "beat-1", cue: "先看输入和要解决的问题", text: isInterop ? "先把目标程序放进来，问题是它原本依赖的运行环境不同。" : `先看这个项目要处理的输入：${project.exampleScenario || project.problem}`, action: "draw", voiceShare: 0.2, objectIds: isInterop ? ["input"] : ["problem", "input"], objects, focusIds: isInterop ? ["input"] : ["problem"] },
+    { id: "beat-2", cue: "再画出项目真正做的转换或处理", text: `接着由${project.title || project.repo}完成核心处理：${project.features[0] ?? project.oneLineSummary}`, action: "transform", voiceShare: 0.24, objectIds: ["transform"], objects, connectors: [{ from: "input", to: "transform", label: "送入处理" }], focusIds: ["transform"] },
+    { id: "beat-3", cue: "补上它依赖的关键对象", text: `这一步还要调用关键能力：${project.features.slice(1, 3).join("、") || project.usage}`, action: "group", voiceShare: 0.2, objectIds: isInterop ? ["system", "context"] : ["context"], objects, connectors: [{ from: "context", to: "transform", label: "提供能力" }], focusIds: ["context"] },
+    { id: "beat-4", cue: "最后落到可以验证的结果", text: `最后得到可以检查的结果：${project.exampleResult || project.oneLineSummary}`, action: "result", voiceShare: 0.22, objectIds: ["result"], objects, connectors: [{ from: "transform", to: "result", label: "输出" }], focusIds: ["result"] },
+    { id: "beat-5", cue: "把整条原理链路收束起来", text: "把输入、处理、依赖和结果连起来，就能看懂这个项目如何把问题变成可验证的结果。", action: "hold", voiceShare: 0.14, objectIds: objects.map((object) => object.id), objects, connectors: [{ from: "result", to: isInterop ? "system" : "context", label: "回到实际环境" }] },
+  ];
+  return { version: 1, title: `${project.title || project.repo} 的工作原理`, summary: project.oneLineSummary, beats };
+}
+
+function conceptObjectWidth(object: ConceptObject): number {
+  return object.kind === "context" ? 360 : object.kind === "problem" ? 310 : 270;
+}
+
+function conceptObjectPosition(object: ConceptObject): { x: number; y: number } {
+  const xInset = Math.max(16, Math.min(28, (conceptObjectWidth(object) / 900) * 50));
+  return {
+    x: Math.max(xInset, Math.min(100 - xInset, object.x)),
+    y: Math.max(15, Math.min(84, object.y)),
+  };
+}
+
+function ConceptObjectCard({ object, active, focus, beatProgress }: { object: ConceptObject; active: boolean; focus: boolean; beatProgress: number }) {
+  const color = object.kind === "problem" ? palette.coral : object.kind === "result" ? palette.teal : object.kind === "context" ? palette.yellow : palette.ink;
+  const isContext = object.kind === "context";
+  const width = conceptObjectWidth(object);
+  const { x, y } = conceptObjectPosition(object);
+  const contentWidth = width - 2 * 16 - 2 * (isContext ? 4 : 3);
+  const detail = object.detail ? textLayout(object.detail, contentWidth, 126, 20, 18, 700) : null;
+  const label = textLayout(object.label, contentWidth, 58, 24, 21, 900);
+  const cardHeight = Math.max(isContext ? 170 : 132, label.height + (detail?.height ?? 0) + (detail ? 55 : 32));
+  return <div data-text-region={`原理对象 ${object.id}`} style={{ position: "absolute", left: `${x}%`, top: `${y}%`, width, height: cardHeight, transform: `translate(-50%, -50%) scale(${0.94 + (active ? beatProgress : 1) * 0.06})`, opacity: active ? beatProgress : 1, boxSizing: "border-box", padding: 16, border: `${isContext ? 4 : 3}px ${isContext ? "dashed" : "solid"} ${color}`, borderRadius: isContext ? 46 : 24, background: isContext ? "rgba(247,198,75,.13)" : "#fffef9", boxShadow: focus ? `0 0 0 8px ${color}33, 0 9px 0 ${color}55` : `0 8px 0 ${color}33`, textAlign: "center", zIndex: isContext ? 1 : 3 }}>
+    <TextBlock layout={label} name={`原理对象 ${object.id} 标题`} progress={active ? beatProgress : 1} style={{ color: palette.ink, fontWeight: 950 }} />
+    {detail && <TextBlock layout={detail} name={`原理对象 ${object.id} 说明`} progress={active ? beatProgress : 1} style={{ marginTop: 7, color: palette.muted, fontWeight: 700 }} />}
+  </div>;
+}
+
+function ConceptConnector({ connector, objects, visible }: { connector: { from: string; to: string; label?: string }; objects: Map<string, ConceptObject>; visible: number }) {
+  const from = objects.get(connector.from);
+  const to = objects.get(connector.to);
+  if (!from || !to) return null;
+  const fromPosition = conceptObjectPosition(from);
+  const toPosition = conceptObjectPosition(to);
+  const dx = toPosition.x - fromPosition.x;
+  const dy = toPosition.y - fromPosition.y;
+  const distance = Math.max(1, Math.sqrt(dx * dx + dy * dy));
+  const ux = dx / distance;
+  const uy = dy / distance;
+  const fromHalfWidth = (conceptObjectWidth(from) / 900) * 50;
+  const toHalfWidth = (conceptObjectWidth(to) / 900) * 50;
+  const fromHalfHeight = from.kind === "context" ? 9 : 7;
+  const toHalfHeight = to.kind === "context" ? 9 : 7;
+  const fromX = fromPosition.x + ux * fromHalfWidth;
+  const fromY = fromPosition.y + uy * fromHalfHeight;
+  const toX = toPosition.x - ux * toHalfWidth;
+  const toY = toPosition.y - uy * toHalfHeight;
+  const safeFromX = Math.max(3, Math.min(97, fromX));
+  const safeFromY = Math.max(3, Math.min(97, fromY));
+  const safeToX = Math.max(3, Math.min(97, toX));
+  const safeToY = Math.max(3, Math.min(97, toY));
+  const edgeDx = safeToX - safeFromX;
+  const edgeDy = safeToY - safeFromY;
+  const length = Math.sqrt(edgeDx * edgeDx + edgeDy * edgeDy);
+  const angle = Math.atan2(edgeDy, edgeDx) * 180 / Math.PI;
+  return <div data-text-region={`原理连线 ${connector.from}-${connector.to}`} style={{ position: "absolute", left: `${safeFromX}%`, top: `${safeFromY}%`, width: `${length}%`, height: 4, transformOrigin: "0 50%", transform: `rotate(${angle}deg) scaleX(${visible})`, opacity: visible, background: palette.coral, zIndex: 2, borderRadius: 4 }}><span style={{ position: "absolute", right: -5, top: -7, width: 0, height: 0, borderTop: "9px solid transparent", borderBottom: "9px solid transparent", borderLeft: `14px solid ${palette.coral}` }} />{connector.label && <span style={{ position: "absolute", left: "50%", top: edgeDy < 0 ? 12 : -31, transform: "translateX(-50%)", padding: "3px 9px", borderRadius: 99, background: "#fffef9", color: palette.coral, fontSize: 16, fontWeight: 850, whiteSpace: "nowrap" }}>{connector.label}</span>}</div>;
+}
+
+function ConceptStoryboardScene({ project, caption, durationFrames, beatId }: { project: RenderProject; caption: string; durationFrames: number; beatId?: string }) {
+  const frame = useCurrentFrame();
+  const t = textProgress(frame, durationFrames);
+  const storyboard = project.conceptStoryboard ?? fallbackConceptStoryboard(project);
+  const objects = new Map<string, ConceptObject>();
+  for (const beat of storyboard.beats) for (const object of beat.objects ?? []) objects.set(object.id, object);
+  const selectedBeat = beatId ? storyboard.beats.findIndex((beat) => beat.id === beatId) : -1;
+  const beatPosition = t * storyboard.beats.length;
+  const activeIndex = selectedBeat >= 0 ? selectedBeat : Math.max(0, Math.min(storyboard.beats.length - 1, Math.floor(beatPosition)));
+  const beatProgress = selectedBeat >= 0 ? t : Math.max(0, Math.min(1, beatPosition - activeIndex));
+  const visibleBeat = (index: number) => index === activeIndex ? beatProgress : 1;
+  const seen = new Set(storyboard.beats.slice(0, activeIndex + 1).flatMap((beat) => beat.objectIds));
+  const connectors = storyboard.beats.slice(0, activeIndex + 1).flatMap((beat) => beat.connectors ?? []);
+  const current = storyboard.beats[activeIndex];
+  const title = textLayout(`${project.title || project.repo}：${storyboard.title}`, 936, 138, 44, 34, 950);
+  const panelTop = 234 + 32 + 15 + title.height + 28;
+  const panelHeight = 1650 - panelTop;
+  return <AbsoluteFill style={{ color: palette.ink }}>
+    <StageBackground />
+    <div style={{ position: "absolute", top: 174, left: 70, display: "flex", gap: 10, fontSize: 20, fontWeight: 900 }}><span style={{ borderRadius: 99, padding: "8px 14px", background: palette.teal, color: "white" }}>#{project.rank}</span><span style={{ borderRadius: 99, padding: "8px 14px", background: "white" }}>原理动画</span></div>
+    <div style={{ position: "absolute", top: 234, left: 72, right: 72 }}><div style={{ fontSize: 24, letterSpacing: 3, color: palette.teal, fontWeight: 950 }}>第二步 · 先理解原理</div><TextBlock layout={title} name="原理故事板标题" progress={t} style={{ marginTop: 15, fontWeight: 950 }} /></div>
+    <div data-text-region="原理故事板画布" style={{ position: "absolute", left: 58, right: 58, top: panelTop, height: panelHeight, boxSizing: "border-box", padding: 28, border: `3px solid ${palette.ink}`, borderRadius: 34, background: "rgba(255,255,255,.82)", boxShadow: "0 14px 0 rgba(20,52,74,.11)" }}>
+      <div style={{ height: 46, display: "flex", alignItems: "center", justifyContent: "space-between", color: palette.teal, fontSize: 19, fontWeight: 950 }}><span>{storyboard.summary}</span><span style={{ color: palette.muted, fontSize: 16 }}>{activeIndex + 1} / {storyboard.beats.length}</span></div>
+      <div style={{ height: 4, margin: "8px 0 10px", background: "rgba(20,52,74,.12)", borderRadius: 5 }}><div style={{ width: `${t * 100}%`, height: "100%", background: `linear-gradient(90deg, ${palette.coral}, ${palette.teal})`, borderRadius: 5 }} /></div>
+      <div style={{ position: "relative", height: panelHeight - 118, overflow: "hidden", borderRadius: 22, background: "rgba(247,244,235,.68)" }}>
+        <div style={{ position: "absolute", inset: 0, backgroundImage: "linear-gradient(rgba(20,52,74,.07) 1px, transparent 1px), linear-gradient(90deg, rgba(20,52,74,.07) 1px, transparent 1px)", backgroundSize: "64px 64px", opacity: .55 }} />
+        {connectors.map((connector, index) => <ConceptConnector key={`${connector.from}-${connector.to}-${index}`} connector={connector} objects={objects} visible={index < connectors.length - 1 ? 1 : visibleBeat(activeIndex)} />)}
+        {[...objects.values()].filter((object) => seen.has(object.id)).map((object) => {
+          const beatIndex = storyboard.beats.findIndex((beat) => beat.objectIds.includes(object.id));
+          const isCurrent = beatIndex === activeIndex;
+          const focus = Boolean(current?.focusIds?.includes(object.id));
+          return <ConceptObjectCard key={object.id} object={object} active focus={focus} beatProgress={isCurrent ? visibleBeat(activeIndex) : 1} />;
+        })}
+        {current && <div style={{ position: "absolute", left: 20, right: 20, bottom: 16, textAlign: "center", color: palette.coral, fontSize: 20, fontWeight: 900, opacity: visibleBeat(activeIndex) }}>{current.cue}</div>}
+      </div>
+    </div>
+    <Subtitle text={caption} durationFrames={durationFrames} />
+  </AbsoluteFill>;
+}
+
 function ConceptWalkthrough({ project, caption, durationFrames }: { project: RenderProject; caption: string; durationFrames: number }) {
   const frame = useCurrentFrame();
   const t = textProgress(frame, durationFrames);
@@ -308,7 +434,7 @@ function ConceptWalkthrough({ project, caption, durationFrames }: { project: Ren
   </AbsoluteFill>;
 }
 
-function ExplainerScene({ project, scene, caption, index, durationFrames }: { project: RenderProject; scene: string; caption: string; index: number; durationFrames: number }) {
+function ExplainerScene({ project, scene, caption, index, durationFrames, beatId }: { project: RenderProject; scene: string; caption: string; index: number; durationFrames: number; beatId?: string }) {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const progress = spring({ frame, fps, config: { damping: 20, mass: 0.8 } });
@@ -345,7 +471,7 @@ function ExplainerScene({ project, scene, caption, index, durationFrames }: { pr
   const evidenceId = preferredAsset?.id ?? visualAssets?.[fallbackIndex[scene] ?? 0]?.id;
   const hasEvidence = Boolean(evidenceId && visualAssets?.some((asset) => asset.id === evidenceId));
   const main = textLayout(content.main, 868, 336, 32, 28, 850);
-  const detail = textLayout(content.detail, 876, 178, 24, 22, 700);
+  const detail = textLayout(content.detail, 874, 178, 24, 22, 700);
   const title = textLayout(sceneTitles[scene] ?? project.title, 928, 145, 54, 44, 950);
   const bodyTop = Math.max(420, 234 + 32 + 16 + title.height + 28);
   const mainHeight = main.height + 50;
@@ -353,7 +479,7 @@ function ExplainerScene({ project, scene, caption, index, durationFrames }: { pr
   const contentBottom = bodyTop + mainHeight + 13 + detailHeight;
   const visualTop = Math.max(674, contentBottom + 34);
   const opacity = interpolate(progress, [0, 1], [0, 1]);
-  if (scene === "concept") return <ConceptWalkthrough project={project} caption={caption} durationFrames={durationFrames} />;
+  if (scene === "concept") return <ConceptStoryboardScene project={project} caption={caption} durationFrames={durationFrames} beatId={beatId} />;
   return <AbsoluteFill style={{ color: palette.ink }}>
     <StageBackground />
     <div style={{ position: "absolute", top: 234, left: 76, right: 76, opacity, transform: `translateY(${(1 - progress) * 35}px)` }}>
@@ -420,7 +546,7 @@ export const ProjectVideo: React.FC<VideoProps> = ({ project, leaderboard }) => 
       return <Sequence key={`${segment.scene}-${index}`} from={start} durationInFrames={frames} name={segment.scene}>
         {segment.scene === "intro"
           ? <LeaderboardScene project={project} leaderboard={leaderboard} caption={segment.text} durationFrames={frames} />
-          : <ExplainerScene project={project} scene={segment.scene} caption={segment.text} index={index} durationFrames={frames} />}
+          : <ExplainerScene project={project} scene={segment.scene} caption={segment.text} index={index} durationFrames={frames} beatId={segment.beatId} />}
         {segment.audio ? <Audio src={staticFile(segment.audio)} /> : null}
       </Sequence>;
     })}

@@ -34,6 +34,7 @@ export type NarrationSegment = {
   scene: "intro" | "problem" | "concept" | "case" | "dashboard" | "setup" | "workflow" | "requirements" | "summary";
   text: string;
   spokenText?: string;
+  beatId?: string;
 };
 
 export type VisualAsset = {
@@ -41,6 +42,43 @@ export type VisualAsset = {
   path: string;
   label: string;
   sourceUrl: string;
+};
+
+export type ConceptObjectKind = "problem" | "input" | "agent" | "context" | "system" | "file" | "terminal" | "transform" | "result" | "note";
+
+export type ConceptObject = {
+  id: string;
+  kind: ConceptObjectKind;
+  label: string;
+  detail?: string;
+  x: number;
+  y: number;
+};
+
+export type ConceptConnector = {
+  from: string;
+  to: string;
+  label?: string;
+};
+
+export type ConceptBeat = {
+  id: string;
+  cue: string;
+  text: string;
+  spokenText?: string;
+  action: "draw" | "connect" | "group" | "transform" | "highlight" | "result" | "hold";
+  voiceShare: number;
+  objectIds: string[];
+  objects?: ConceptObject[];
+  connectors?: ConceptConnector[];
+  focusIds?: string[];
+};
+
+export type ConceptStoryboard = {
+  version: 1;
+  title: string;
+  summary: string;
+  beats: ConceptBeat[];
 };
 
 export type ProjectScript = {
@@ -59,6 +97,7 @@ export type ProjectScript = {
   requirements: string[];
   limitations: string[];
   visualAssets?: VisualAsset[];
+  conceptStoryboard?: ConceptStoryboard;
   narrationSegments: NarrationSegment[];
   sources: string[];
 };

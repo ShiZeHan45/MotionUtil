@@ -7,7 +7,32 @@ import { readJson, safeJson, writeJson } from "../lib/io";
 import { repoSlug } from "../lib/paths";
 import { requestChatCompletion, type ChatMessage } from "../lib/chat-completion";
 
-const PROMPT_VERSION = "gh-weekly-script-v4";
+const PROMPT_VERSION = "gh-weekly-script-v6-beat-narration";
+const conceptObjectSchema = z.object({
+  id: z.string().regex(/^[a-z][a-z0-9-]{1,30}$/),
+  kind: z.enum(["problem", "input", "agent", "context", "system", "file", "terminal", "transform", "result", "note"]),
+  label: z.string().min(1).max(28),
+  detail: z.string().max(80).optional(),
+  x: z.number().min(8).max(92),
+  y: z.number().min(12).max(88),
+});
+const conceptStoryboardSchema = z.object({
+  version: z.literal(1),
+  title: z.string().min(2).max(40),
+  summary: z.string().min(8).max(160),
+  beats: z.array(z.object({
+    id: z.string().regex(/^beat-[1-8]$/),
+    cue: z.string().min(4).max(100),
+    text: z.string().min(8).max(320),
+    spokenText: z.string().min(8).max(320).optional(),
+    action: z.enum(["draw", "connect", "group", "transform", "highlight", "result", "hold"]),
+    voiceShare: z.number().min(0.04).max(0.5),
+    objectIds: z.array(z.string().regex(/^[a-z][a-z0-9-]{1,30}$/)).min(1).max(8),
+    objects: z.array(conceptObjectSchema).max(8).optional(),
+    connectors: z.array(z.object({ from: z.string(), to: z.string(), label: z.string().max(24).optional() })).max(8).optional(),
+    focusIds: z.array(z.string()).max(4).optional(),
+  })).min(3).max(8),
+});
 const responseSchema = z.object({
   scripts: z.array(z.object({
     repo: z.string().min(3).max(150),
@@ -24,6 +49,7 @@ const responseSchema = z.object({
     usageSteps: z.array(z.string().min(3).max(180)).min(2).max(5),
     requirements: z.array(z.string().min(3).max(120)).min(1).max(4),
     limitations: z.array(z.string().min(3).max(140)).min(1).max(3),
+    conceptStoryboard: conceptStoryboardSchema,
     narrationSegments: z.array(z.object({
       scene: z.enum(["intro", "problem", "concept", "case", "dashboard", "setup", "workflow", "requirements", "summary"]),
       text: z.string().min(2).max(500),
@@ -79,6 +105,21 @@ function validateScriptCoverage(script: ProjectScript, source: RepoFacts): void 
   const text = script.narrationSegments.map((segment) => segment.text).join("");
   const charCount = [...text.replace(/\s/g, "")].length;
   if (charCount < 450 || charCount > 1_350) throw new Error(`${source.fullName} 讲稿长度为 ${charCount} 字符，预期 450–1,350；实际时长仍以 TTS 测量为准`);
+  const storyboard = script.conceptStoryboard;
+  if (!storyboard) throw new Error(`${source.fullName} 缺少原理故事板`);
+  const objectIds = new Set<string>();
+  for (const beat of storyboard.beats) {
+    if (!beat.text || beat.text.trim().length < 8) throw new Error(`${source.fullName} 原理故事板 ${beat.id} 缺少可配音的 text`);
+    for (const object of beat.objects ?? []) objectIds.add(object.id);
+  }
+  for (const beat of storyboard.beats) {
+    for (const id of beat.objectIds) if (!objectIds.has(id)) throw new Error(`${source.fullName} 原理故事板 ${beat.id} 引用了未定义对象 ${id}`);
+    for (const connector of beat.connectors ?? []) {
+      if (!objectIds.has(connector.from) || !objectIds.has(connector.to)) throw new Error(`${source.fullName} 原理故事板 ${beat.id} 的连线引用了未定义对象`);
+    }
+  }
+  const totalShare = storyboard.beats.reduce((sum, beat) => sum + beat.voiceShare, 0);
+  if (totalShare < 0.9 || totalShare > 1.1) throw new Error(`${source.fullName} 原理故事板 voiceShare 合计为 ${totalShare.toFixed(2)}，应接近 1`);
 }
 
 function parseScripts(content: string, facts: RepoFacts[]): ProjectScript[] {
@@ -102,10 +143,12 @@ async function generateBatch(facts: RepoFacts[]): Promise<ProjectScript[]> {
     "只能使用输入资料支持的事实，不得推测功能、性能、用户数量、收费模式或成熟度。资料不足就用中性表述，不要编造。",
     "本周名次和仓库名必须原样保留。来源只能从每个项目 allowedSources 里选择。",
     "只输出 JSON，不要 Markdown、代码围栏或额外解释。JSON 格式为 {\"scripts\":[...]}。",
-    "每个项目必须输出 repo, rank, title, oneLineSummary, problem, features（最多3项）, audience, usage, exampleScenario, exampleFlow（2到4步）, exampleResult, usageSteps（2到5步）, requirements（1到4项）, limitations（1到3项）, narrationSegments, sources；不要省略这些字段。",
+    "每个项目必须输出 repo, rank, title, oneLineSummary, problem, features（最多3项）, audience, usage, exampleScenario, exampleFlow（2到4步）, exampleResult, usageSteps（2到5步）, requirements（1到4项）, limitations（1到3项）, narrationSegments, sources 和 conceptStoryboard；不要省略这些字段。",
     "narrationSegments 必须正好九段且顺序固定：intro、problem、concept、case、dashboard、setup、workflow、requirements、summary；每段含 scene 和 text。只有数字需要特殊口播时才额外提供 spokenText；text 用于字幕，spokenText 用于配音。",
     "面向普通短视频观众，逐步讲明白：先说排名，再说痛点和项目是什么，用一个简单类比解释，再走完一个具体案例，然后讲界面里能看到的结果、安装配置步骤、核心操作、运行条件与边界，最后只做内容总结。",
     "严格按场景放置口播：intro 只讲排名、项目名和榜单数字；problem 只讲痛点；concept 只解释项目是什么；case 才引出并展开案例。后续场景的预告或转场句必须放在对应场景里，不能提前塞进 intro；每段口播必须和该段动画画面对应。",
+    "conceptStoryboard 的 beats 必须按口播顺序讲清一个项目的核心原理。每个 beat 必须同时给出 text（这一拍要说的话）和可选 spokenText，voiceShare 是 concept 口播中该节拍所占比例，所有 voiceShare 之和应接近 1。先画输入或问题，再逐步画核心对象和关系，最后画结果；不要把所有对象一开始铺满。对象位置使用 0 到 100 的百分比，x 从左到右，y 从上到下。仅使用允许的对象类型，不写 React、SVG 或其他代码，不编造资料中没有的内部机制。",
+    "conceptStoryboard 的 title 必须概括项目原理，summary 必须是一句普通人能听懂的话。多 Agent 项目可以画 agent 和 context；编译器、转换器、数据处理项目应按输入、处理、输出选择对象。动作只表达画出、连接、圈定、转换、强调、结果或停留。",
     "口播为自然普通话，目标约 2 分钟，最长 3 分钟。建议总长度约 800–1,100 个汉字；intro 保留‘本周 GitHub Trending 第 N 名，今天介绍 XXX’的意思。",
     "案例可以用资料支持的假设场景，但必须说清是举例；不能把官方演示截图里的示例数字写成真实用户效果。使用步骤按官方资料可复现的先后顺序写，不要编造按钮、安装命令或不支持的功能。",
     "不要写‘想试用的话’、关注、点赞、评论等营销 CTA。视频只讲解、展示案例和讲清使用方法。",

@@ -39,14 +39,17 @@ export function textLayout(text: string, width: number, maxHeight: number, fontS
       ? (value: string) => context!.measureText(value).width
       : (value: string) => Array.from(value).reduce((sum, char) => sum + (/[^\x00-\x7F]/u.test(char) ? size : size * 0.65), 0);
     lines = wrapText(text, width - 2, measure);
-    lineHeight = Math.ceil(size * 1.35);
+    // Keep an integer line box so Chromium's scrollHeight does not gain a
+    // fractional rounding pixel on dense multi-line cards.
+    lineHeight = Math.max(size + 2, Math.floor(size * 1.35));
     if (lines.length * lineHeight <= maxHeight || size === minFontSize) break;
   }
   const rows = Math.floor(maxHeight / lineHeight);
   if (rows < 1) throw new Error(`文字区域不足一行：${text}`);
   const pages: string[][] = [];
   for (let index = 0; index < lines.length; index += rows) pages.push(lines.slice(index, index + rows));
-  const layout = { text, width, fontSize: size, lineHeight, height: Math.min(rows, lines.length) * lineHeight, pages };
+  // Leave a small pixel buffer for Chromium's line box rounding.
+  const layout = { text, width, fontSize: size, lineHeight, height: Math.min(rows, lines.length) * lineHeight + 4, pages };
   if (layouts.size > 2_000) layouts.clear();
   layouts.set(key, layout);
   return layout;
