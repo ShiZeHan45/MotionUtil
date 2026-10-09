@@ -52,12 +52,11 @@ public sealed class PipelineService(RuntimePaths paths, ProcessRunner processes,
         Directory.CreateDirectory(runDirectory);
         var reportFile = Path.Combine(runDirectory, "run-report.json");
         await SaveLatestRunAsync(outputDirectory, runId);
-        var completed = new HashSet<string>(report.CompletedNodes, StringComparer.OrdinalIgnoreCase);
-        report.CompletedNodes = Labels
-            .Select((label, index) => (label, index))
-            .Where(item => item.index < startIndex && completed.Contains(item.label))
-            .Select(item => item.label)
-            .ToList();
+        // Starting at a later node means the required input files are already
+        // present. Keep those earlier nodes marked complete even when the
+        // previous run was started from an individual node and its report did
+        // not contain the earlier completion markers.
+        report.CompletedNodes = Labels.Take(startIndex).ToList();
         await SaveReportAsync(reportFile, report, cancellationToken);
 
         try
@@ -74,10 +73,16 @@ public sealed class PipelineService(RuntimePaths paths, ProcessRunner processes,
                 var cliEntry = Path.Combine(projectDirectory, "src", "cli.ts");
                 var env = CreateProcessEnvironment(settings, projectDirectory, outputDirectory);
 
+                var nestedNode3Activity = false;
                 await processes.RunCheckedAsync(node, [cliRunner, cliEntry, Commands[index], "--run-id", runId], projectDirectory, env,
                     line =>
                     {
                         LogLine?.Invoke(line);
+                        if (index == 3 && line.StartsWith("[节点 3]", StringComparison.Ordinal))
+                        {
+                            nestedNode3Activity = true;
+                            StepChanged?.Invoke(2, "运行中", 50);
+                        }
                         var match = System.Text.RegularExpressions.Regex.Match(line, @"(?:\[节点 \d\] )?(\d+)/(\d+)");
                         if (match.Success && int.TryParse(match.Groups[1].Value, out var current) && int.TryParse(match.Groups[2].Value, out var total))
                             StepChanged?.Invoke(index, "运行中", Math.Clamp((int)(current * 100.0 / Math.Max(total, 1)), 2, 95));
@@ -86,8 +91,9 @@ public sealed class PipelineService(RuntimePaths paths, ProcessRunner processes,
                             StepChanged?.Invoke(index, "运行中", Math.Clamp(value, 2, 98));
                     }, cancellationToken);
 
+                if (index == 3 && nestedNode3Activity) StepChanged?.Invoke(2, "已完成", 100);
                 var label = $"节点 {index + 1}";
-                if (!completed.Contains(label)) report.CompletedNodes.Add(label);
+                if (!report.CompletedNodes.Contains(label)) report.CompletedNodes.Add(label);
                 report.Status = "running";
                 if (_activeStartedAt.HasValue)
                     report.NodeDurationsSeconds[$"节点 {index + 1}"] = Math.Max(0.1, (DateTimeOffset.UtcNow - _activeStartedAt.Value).TotalSeconds);
@@ -117,6 +123,11 @@ public sealed class PipelineService(RuntimePaths paths, ProcessRunner processes,
         {
             var failedIndex = FindActiveStepIndex();
             if (failedIndex < 0) failedIndex = startIndex;
+            // Node 4 can call the model on behalf of Node 3 to shorten an
+            // overlong script. Expose that failure as Node 3 so the desktop
+            // continuation starts at the model step instead of jumping back
+            // into the audio step with the same stale script.
+            if (failedIndex == 3 && error.Message.Contains("节点 3", StringComparison.Ordinal)) failedIndex = 2;
             report.Status = "failed";
             report.FailedAt = $"节点 {failedIndex + 1}";
             report.Error = error.Message;

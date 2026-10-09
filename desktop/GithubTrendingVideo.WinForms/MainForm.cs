@@ -626,7 +626,7 @@ public sealed class MainForm : Form
         _pipeline.RunIdChanged += runId => Ui(() => { _runLabel.Text = $"正在运行 · {runId}"; _runLabel.ForeColor = Color.FromArgb(37, 99, 235); UpdateEtaDisplay(); });
     }
 
-    private async Task StartRunAsync(int startIndex)
+    private async Task StartRunAsync(int startIndex, bool offerNode3Recovery = true)
     {
         if (_busy) { MessageBox.Show("已有运行正在进行，请先停止或等待完成。", "正在运行", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
         _tabs.SelectedIndex = 0;
@@ -636,6 +636,7 @@ public sealed class MainForm : Form
         if (string.IsNullOrWhiteSpace(_settings.OpenAiModel) || string.IsNullOrWhiteSpace(_settings.OpenAiApiKey)) { MessageBox.Show("节点 3 需要模型服务地址、模型名称和 API Key。请先完成设置。", "缺少讲稿模型设置", MessageBoxButtons.OK, MessageBoxIcon.Warning); _tabs.SelectedIndex = 2; return; }
         BeginProgressTracking(startIndex);
         _busy = true; _runCancellation = new CancellationTokenSource(); _etaTimer.Start(); SetRunButtonsEnabled(false); AppendLog($"开始从节点 {startIndex + 1} 运行，项目目录：{project}");
+        var retryFromNode3 = false;
         try
         {
             await _pipeline.RunFromStepAsync(startIndex, _settings, project, _runCancellation.Token);
@@ -643,8 +644,25 @@ public sealed class MainForm : Form
             MessageBox.Show("本期 5 个节点已完成。请在输出目录逐条检查视频、字幕和配音。", "生成完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
         catch (OperationCanceledException) { _runLabel.Text = "已停止运行"; _runLabel.ForeColor = Color.FromArgb(217, 119, 6); }
-        catch (Exception error) { _runLabel.Text = "运行失败 · 可从失败节点重试"; _runLabel.ForeColor = Color.FromArgb(220, 38, 38); MessageBox.Show(error.Message, "运行失败", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+        catch (Exception error)
+        {
+            _runLabel.Text = "运行失败 · 可从失败节点重试"; _runLabel.ForeColor = Color.FromArgb(220, 38, 38);
+            var needsNode3Recovery = offerNode3Recovery && startIndex != 2 &&
+                (error.Message.Contains("节点 3", StringComparison.Ordinal) || error.Message.Contains("自动压缩讲稿", StringComparison.Ordinal));
+            if (needsNode3Recovery)
+            {
+                var choice = MessageBox.Show(
+                    "节点 4 的超长讲稿需要重新生成。点击“确定”后将从节点 3 重新生成讲稿，并自动继续节点 4。",
+                    "从节点 3 重试",
+                    MessageBoxButtons.OKCancel,
+                    MessageBoxIcon.Warning);
+                retryFromNode3 = choice == DialogResult.OK;
+                if (!retryFromNode3) MessageBox.Show(error.Message, "运行失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            else MessageBox.Show(error.Message, "运行失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
         finally { _busy = false; _etaTimer.Stop(); _runCancellation?.Dispose(); _runCancellation = null; SetRunButtonsEnabled(true); await RefreshRunStateAsync(); }
+        if (retryFromNode3) await StartRunAsync(2, false);
     }
 
     private async Task ResumeRunAsync()
