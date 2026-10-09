@@ -81,7 +81,13 @@ public sealed class PipelineService(RuntimePaths paths, ProcessRunner processes,
                         if (index == 3 && line.StartsWith("[节点 3]", StringComparison.Ordinal))
                         {
                             nestedNode3Activity = true;
+                            StepChanged?.Invoke(3, "等待中", 50);
                             StepChanged?.Invoke(2, "运行中", 50);
+                        }
+                        if (index == 3 && nestedNode3Activity && line.Contains("节点 3 修订完成", StringComparison.Ordinal))
+                        {
+                            StepChanged?.Invoke(2, "已完成", 100);
+                            StepChanged?.Invoke(3, "运行中", 50);
                         }
                         var match = System.Text.RegularExpressions.Regex.Match(line, @"(?:\[节点 \d\] )?(\d+)/(\d+)");
                         if (match.Success && int.TryParse(match.Groups[1].Value, out var current) && int.TryParse(match.Groups[2].Value, out var total))

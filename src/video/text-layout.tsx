@@ -103,9 +103,21 @@ export function LayoutGuard({ children }: { children: React.ReactNode }) {
       }
     }
     for (const connector of ref.current.querySelectorAll<HTMLElement>("[data-concept-connector]")) {
-      if (connector.getBoundingClientRect().width < 12) {
+      // The line grows with scaleX, so its transformed bounds are intentionally
+      // near zero at the start of a beat. Validate the untransformed length
+      // recorded by the renderer instead of treating that animation as a
+      // broken connector.
+      const connectorLength = Number.parseFloat(connector.dataset.connectorLength ?? "");
+      if (Number.isFinite(connectorLength) && connectorLength < 12) {
         cancelRender(new Error(`原理布局失败：连线 ${connector.dataset.conceptConnector} 长度不足，帧 ${frame}`));
         return;
+      }
+      if (!Number.isFinite(connectorLength)) {
+        const connectorBounds = connector.getBoundingClientRect();
+        if (Math.max(connectorBounds.width, connectorBounds.height) < 12) {
+          cancelRender(new Error(`原理布局失败：连线 ${connector.dataset.conceptConnector} 长度不足，帧 ${frame}`));
+          return;
+        }
       }
     }
   });

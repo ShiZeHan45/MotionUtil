@@ -325,7 +325,10 @@ function layoutConceptObjects(objects: Map<string, ConceptObject>, connectors: C
     }
   }
   const maxLayer = Math.max(0, ...layer.values());
-  const columns = Math.min(4, maxLayer + 1);
+  // Three columns leave enough breathing room for the cards themselves. A
+  // four-column grid makes adjacent cards nearly touch after their endpoint
+  // insets, producing a connector that is only a few pixels long.
+  const columns = Math.min(3, maxLayer + 1);
   const rowCount = Math.max(1, Math.ceil((maxLayer + 1) / columns));
   const groups = new Map<number, string[]>();
   for (const [id, object] of objects) {
@@ -391,7 +394,7 @@ function ConceptConnector({ connector, objects, positions, visible }: { connecto
   const edgeDy = safeToY - safeFromY;
   const length = Math.sqrt(edgeDx * edgeDx + edgeDy * edgeDy);
   const angle = Math.atan2(edgeDy, edgeDx) * 180 / Math.PI;
-  return <div data-concept-connector={`${connector.from}-${connector.to}`} data-text-region={`原理连线 ${connector.from}-${connector.to}`} style={{ position: "absolute", left: `${safeFromX}%`, top: `${safeFromY}%`, width: `${length}%`, height: 4, transformOrigin: "0 50%", transform: `rotate(${angle}deg) scaleX(${visible})`, opacity: visible, background: palette.coral, zIndex: 2, borderRadius: 4 }}><span style={{ position: "absolute", right: -5, top: -7, width: 0, height: 0, borderTop: "9px solid transparent", borderBottom: "9px solid transparent", borderLeft: `14px solid ${palette.coral}` }} />{connector.label && <span style={{ position: "absolute", left: "50%", top: edgeDy < 0 ? 12 : -31, transform: "translateX(-50%)", padding: "3px 9px", borderRadius: 99, background: "#fffef9", color: palette.coral, fontSize: 16, fontWeight: 850, whiteSpace: "nowrap" }}>{connector.label}</span>}</div>;
+  return <div data-concept-connector={`${connector.from}-${connector.to}`} data-connector-length={length} data-text-region={`原理连线 ${connector.from}-${connector.to}`} style={{ position: "absolute", left: `${safeFromX}%`, top: `${safeFromY}%`, width: `${length}%`, height: 4, transformOrigin: "0 50%", transform: `rotate(${angle}deg) scaleX(${visible})`, opacity: visible, background: palette.coral, zIndex: 2, borderRadius: 4 }}><span style={{ position: "absolute", right: -5, top: -7, width: 0, height: 0, borderTop: "9px solid transparent", borderBottom: "9px solid transparent", borderLeft: `14px solid ${palette.coral}` }} />{connector.label && <span style={{ position: "absolute", left: "50%", top: edgeDy < 0 ? 12 : -31, transform: "translateX(-50%)", padding: "3px 9px", borderRadius: 99, background: "#fffef9", color: palette.coral, fontSize: 16, fontWeight: 850, whiteSpace: "nowrap" }}>{connector.label}</span>}</div>;
 }
 
 function ConceptStoryboardScene({ project, caption, durationFrames, beatId }: { project: RenderProject; caption: string; durationFrames: number; beatId?: string }) {

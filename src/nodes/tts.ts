@@ -206,6 +206,7 @@ export async function synthesizeScripts(scripts: ProjectScript[], audioDirectory
     workingScripts = workingScripts.map((script) => revisedByRepo.get(script.repo.toLowerCase()) ?? script);
     await persistAdjustedScripts(workingScripts, audioDirectory);
     const retryScripts = workingScripts.filter((script) => revisedByRepo.has(script.repo.toLowerCase()));
+    console.log(`[节点 4] 节点 3 修订完成，重新合成配音（第 ${revision + 1}/${MAX_AUTO_REVISIONS} 轮）`);
     const retryProjects = await runKokoro(prepareScripts(retryScripts, substitutions), audioDirectory, config.kokoroSpeed);
     const byRepo = new Map(projects.map((project) => [project.repo.toLowerCase(), project]));
     for (const project of retryProjects) byRepo.set(project.repo.toLowerCase(), project);
