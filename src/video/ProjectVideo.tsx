@@ -1,6 +1,8 @@
 import React from "react";
-import { AbsoluteFill, Audio, Sequence, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
+import { AbsoluteFill, Audio, Img, Sequence, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
 import type { RenderProject, TrendingRepo } from "../types";
+import { isBadgeAsset } from "../lib/visual-assets";
+import { LayoutGuard, TextBlock, textLayout, textProgress, VIDEO_FONT } from "./text-layout";
 
 export type VideoProps = { project: RenderProject; leaderboard: TrendingRepo[] };
 export const FPS = 30;
@@ -17,14 +19,6 @@ export function durationInFrames(project: RenderProject): number {
 const palette = { ink: "#14344A", teal: "#168C86", tealLight: "#B7E0D7", coral: "#EF6A55", yellow: "#F7C64B", paper: "#F7F4EB", muted: "#667780" };
 const VIDEO_SAFE_TOP = 64;
 const CHAPTER_BAR_TOP = 112;
-const clampText = (lines: number): React.CSSProperties => ({
-  display: "-webkit-box",
-  WebkitBoxOrient: "vertical",
-  WebkitLineClamp: lines,
-  overflow: "hidden",
-  overflowWrap: "anywhere",
-  wordBreak: "break-word",
-});
 const sceneTitles: Record<string, string> = {
   problem: "它想解决的麻烦",
   concept: "把项目原理拆成几步",
@@ -81,7 +75,11 @@ function Subtitle({ text, durationFrames }: { text: string; durationFrames: numb
     accumulated += Array.from(chunk).length;
     return spokenPosition < accumulated;
   }));
-  return <div style={{ position: "absolute", zIndex: 45, left: 68, right: 68, bottom: 104, minHeight: 82, maxHeight: 122, boxSizing: "border-box", borderRadius: 22, border: "2px solid rgba(255,255,255,.6)", background: "rgba(22, 31, 40, .9)", color: "white", padding: "16px 24px", display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", fontSize: 31, lineHeight: 1.35, fontWeight: 800, boxShadow: "0 12px 26px rgba(20,30,40,.2)", ...clampText(2) }}>{chunks[activeIndex] ?? text}</div>;
+  const chunk = chunks[activeIndex] ?? text;
+  const layout = textLayout(chunk, 892, 88, 31, 28, 800);
+  const chunkStart = chunks.slice(0, activeIndex).reduce((sum, value) => sum + Array.from(value).length, 0);
+  const progress = (spokenPosition - chunkStart) / Math.max(1, Array.from(chunk).length - 1);
+  return <div data-text-region="字幕" style={{ position: "absolute", zIndex: 45, left: 68, right: 68, bottom: 104, minHeight: 82, boxSizing: "border-box", borderRadius: 22, border: "2px solid rgba(255,255,255,.6)", background: "rgba(22, 31, 40, .9)", color: "white", padding: "16px 24px", display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", fontWeight: 800, boxShadow: "0 12px 26px rgba(20,30,40,.2)" }}><TextBlock key={chunk} layout={layout} name="字幕正文" progress={progress} /></div>;
 }
 
 function CodeMascot() {
@@ -111,7 +109,7 @@ function DiagramIcon({ kind }: { kind: "input" | "process" | "result" }) {
   return <svg viewBox="0 0 100 100" width="84" height="84"><path {...common} d="M19 77h62 M29 68V47h14v21 M54 68V29h14v39 M76 68V17h11v51" /><path d="M20 29L34 17L46 28" fill="none" stroke={palette.coral} strokeWidth="7" strokeLinecap="round" strokeLinejoin="round" /></svg>;
 }
 
-function SceneDiagram({ project, scene }: { project: RenderProject; scene: string }) {
+function SceneDiagram({ project, scene, top, durationFrames }: { project: RenderProject; scene: string; top: number; durationFrames: number }) {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const panelIn = spring({ frame: frame - 8, fps, config: { damping: 19, mass: 0.8 } });
@@ -134,9 +132,9 @@ function SceneDiagram({ project, scene }: { project: RenderProject; scene: strin
         ]
         : scene === "workflow"
         ? [
-            { label: shortCardLabel(steps[0] ?? "开始使用", "开始使用", 8), detail: steps[0] ?? project.usage, kind: kinds[0] },
-            { label: shortCardLabel(steps[1] ?? "执行流程", "执行流程", 8), detail: steps[1] ?? flow[0] ?? project.features[0] ?? project.usage, kind: kinds[1] },
-            { label: shortCardLabel(steps[2] ?? "查看结果", "查看结果", 8), detail: steps[2] ?? project.exampleResult, kind: kinds[2] },
+            { label: "步骤 1", detail: steps[0] ?? project.usage, kind: kinds[0] },
+            { label: "步骤 2", detail: steps[1] ?? flow[0] ?? project.features[0] ?? project.usage, kind: kinds[1] },
+            { label: "步骤 3", detail: steps[2] ?? project.exampleResult, kind: kinds[2] },
           ]
         : scene === "requirements"
           ? [
@@ -155,17 +153,20 @@ function SceneDiagram({ project, scene }: { project: RenderProject; scene: strin
                 { label: "处理", detail: flow[0] ?? project.features[0] ?? project.usage, kind: kinds[1] },
                 { label: "输出", detail: project.exampleResult || project.oneLineSummary, kind: kinds[2] },
               ];
-  return <div style={{ position: "absolute", left: 74, right: 74, top: 1125, height: 480, borderRadius: 34, border: `3px solid rgba(20,52,74,.5)`, background: "rgba(255,255,255,.86)", boxShadow: "0 12px 0 rgba(20,52,74,.1)", padding: "28px 28px", boxSizing: "border-box", opacity: panelIn, transform: `translateY(${(1 - panelIn) * 36}px) scale(${0.98 + panelIn * 0.02})` }}>
+  const maxCardHeight = Math.min(530, 1645 - top - 140);
+  const cards = stages.map((stage) => ({ ...stage, labelLayout: textLayout(stage.label, 214, 72, 26, 24, 900), detailLayout: textLayout(stage.detail, 214, maxCardHeight - 200, 24, 22, 650) }));
+  const cardHeight = Math.max(...cards.map((card) => 130 + card.labelLayout.height + card.detailLayout.height));
+  return <div data-text-region={`${scene} 示意图`} style={{ position: "absolute", left: 74, right: 74, top, height: cardHeight + 140, borderRadius: 34, border: `3px solid rgba(20,52,74,.5)`, background: "rgba(255,255,255,.86)", boxShadow: "0 12px 0 rgba(20,52,74,.1)", padding: "28px 28px", boxSizing: "border-box", opacity: panelIn, transform: `translateY(${(1 - panelIn) * 36}px) scale(${0.98 + panelIn * 0.02})` }}>
     <div style={{ fontSize: 22, color: palette.teal, fontWeight: 950, letterSpacing: 2 }}>项目示意图 · 依据项目资料整理</div>
     <div style={{ position: "absolute", top: 100, left: 24, right: 24, display: "flex", alignItems: "stretch", justifyContent: "space-between", gap: 4 }}>
-      {stages.map((stage, index) => {
+      {cards.map((stage, index) => {
         const cardIn = spring({ frame: frame - 12 - index * 8, fps, config: { damping: 16, mass: 0.65 } });
         const arrowOpacity = interpolate(frame, [18 + index * 8, 28 + index * 8], [0, 1], { extrapolateRight: "clamp" });
         return <React.Fragment key={stage.label}>
-        <div style={{ width: 244, height: 270, border: `3px solid ${index === 1 ? palette.teal : palette.ink}`, borderRadius: 24, background: index === 1 ? "#E5F4EF" : "#FCFBF6", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "16px 12px", boxSizing: "border-box", textAlign: "center", opacity: cardIn, transform: `translateY(${(1 - cardIn) * 32}px) scale(${0.94 + cardIn * 0.06})` }}>
+        <div data-text-region={`${scene} 示意卡片 ${index + 1}`} style={{ width: 244, height: cardHeight, flexShrink: 0, border: `3px solid ${index === 1 ? palette.teal : palette.ink}`, borderRadius: 24, background: index === 1 ? "#E5F4EF" : "#FCFBF6", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "16px 12px", boxSizing: "border-box", textAlign: "center", opacity: cardIn, transform: `translateY(${(1 - cardIn) * 32}px) scale(${0.94 + cardIn * 0.06})` }}>
           <DiagramIcon kind={stage.kind} />
-          <div style={{ marginTop: 8, color: palette.ink, fontWeight: 900, fontSize: 23, lineHeight: 1.16, maxHeight: 54, ...clampText(2) }}>{stage.label}</div>
-          <div style={{ marginTop: 6, color: palette.muted, fontWeight: 650, fontSize: stage.detail.length > 34 ? 16 : 18, lineHeight: 1.28, maxHeight: 68, ...clampText(3) }}>{stage.detail}</div>
+          <TextBlock layout={stage.labelLayout} name={`${scene} 示意标题 ${index + 1}`} style={{ marginTop: 8, color: palette.ink, fontWeight: 900 }} />
+          <TextBlock layout={stage.detailLayout} name={`${scene} 示意正文 ${index + 1}`} progress={textProgress(frame, durationFrames, 0.08)} style={{ marginTop: 6, color: palette.muted, fontWeight: 650 }} />
         </div>
         {index < stages.length - 1 && <div style={{ alignSelf: "center", color: palette.coral, fontSize: 38, fontWeight: 950, opacity: arrowOpacity, transform: `translateX(${(1 - arrowOpacity) * -8}px)` }}>➜</div>}
       </React.Fragment>;
@@ -175,25 +176,27 @@ function SceneDiagram({ project, scene }: { project: RenderProject; scene: strin
   </div>;
 }
 
-function RankCard({ repo, selected, scanning, index }: { repo: TrendingRepo; selected: boolean; scanning: boolean; index: number }) {
+function RankCard({ repo, selected, scanning, index, durationFrames }: { repo: TrendingRepo; selected: boolean; scanning: boolean; index: number; durationFrames: number }) {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const entrance = spring({ frame: frame - index * 3, fps, config: { damping: 18, mass: 0.7 } });
   const lift = selected ? interpolate(frame, [fps * 0.7, fps * 1.8], [0, -18], { extrapolateRight: "clamp" }) : 0;
   const formatStars = (stars: number | null) => stars === null ? "—" : new Intl.NumberFormat("en-US").format(stars);
-  return <div style={{ transform: `translateY(${(1 - entrance) * 48 + lift}px) scale(${selected ? 1.035 : scanning ? 1.02 : 1})`, opacity: entrance * (selected || scanning || frame < fps * 1.2 ? 1 : 0.55), width: 800, minHeight: 126, marginBottom: 17, padding: "18px 24px", boxSizing: "border-box", display: "flex", alignItems: "center", gap: 22, border: `4px solid ${selected ? palette.teal : scanning ? palette.coral : palette.ink}`, borderRadius: 26, background: selected ? "#fffef9" : scanning ? "#fff8eb" : "rgba(255,255,255,.75)", boxShadow: selected ? "0 18px 0 rgba(22,140,134,.16)" : "0 7px 0 rgba(20,52,74,.08)" }}>
-    <div style={{ flex: "0 0 auto", width: 76, height: 76, borderRadius: "50%", display: "grid", placeItems: "center", color: "white", background: selected ? palette.coral : scanning ? palette.teal : palette.ink, fontSize: 42, fontWeight: 900 }}>#{repo.rank}</div>
-      <div style={{ minWidth: 0, flex: 1, overflow: "hidden" }}>
-      <div style={{ fontSize: 32, lineHeight: 1.15, fontWeight: 850, color: palette.ink, textOverflow: "ellipsis", whiteSpace: "nowrap", overflow: "hidden", overflowWrap: "anywhere" }}>{repo.fullName}</div>
-      <div style={{ marginTop: 7, fontSize: 22, lineHeight: 1.2, color: palette.muted, textOverflow: "ellipsis", whiteSpace: "nowrap", overflow: "hidden", overflowWrap: "anywhere" }}>{repo.description || "GitHub Trending 本周项目"}</div>
+  const nameLayout = textLayout(repo.fullName, 420, 82, 32, 28, 850);
+  const descriptionLayout = textLayout(repo.description || "GitHub Trending 本周项目", 420, 62, 23, 22, 650);
+  return <div data-text-region={`榜单 ${repo.rank}`} style={{ transform: `translateY(${(1 - entrance) * 48 + lift}px) scale(${selected ? 1.035 : scanning ? 1.02 : 1})`, opacity: entrance * (selected || scanning || frame < fps * 1.2 ? 1 : 0.55), width: 800, height: 190, marginBottom: 14, padding: "15px 24px", boxSizing: "border-box", display: "flex", alignItems: "center", gap: 16, border: `4px solid ${selected ? palette.teal : scanning ? palette.coral : palette.ink}`, borderRadius: 26, background: selected ? "#fffef9" : scanning ? "#fff8eb" : "rgba(255,255,255,.75)", boxShadow: selected ? "0 18px 0 rgba(22,140,134,.16)" : "0 7px 0 rgba(20,52,74,.08)" }}>
+    <div style={{ flex: "0 0 auto", width: 64, height: 64, borderRadius: "50%", display: "grid", placeItems: "center", color: "white", background: selected ? palette.coral : scanning ? palette.teal : palette.ink, fontSize: 34, fontWeight: 900 }}>#{repo.rank}</div>
+      <div style={{ minWidth: 0, flex: 1 }}>
+      <TextBlock layout={nameLayout} name={`榜单仓库名 ${repo.rank}`} progress={textProgress(frame, durationFrames)} style={{ fontWeight: 850, color: palette.ink }} />
+      <TextBlock layout={descriptionLayout} name={`榜单说明 ${repo.rank}`} progress={textProgress(frame, durationFrames)} style={{ marginTop: 7, color: palette.muted }} />
     </div>
     <div style={{ flex: "0 0 132px", textAlign: "right", whiteSpace: "nowrap" }}>
       <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 5, fontSize: 24, lineHeight: 1.15, fontWeight: 950, color: palette.ink }}>
         <span style={{ color: palette.yellow, fontSize: 28 }}>★</span>{formatStars(repo.totalStars)}
       </div>
       {repo.starsThisWeek !== null && <div style={{ marginTop: 7, color: palette.teal, fontSize: 17, lineHeight: 1.1, fontWeight: 850 }}>↗ {formatStars(repo.starsThisWeek)} 本周</div>}
+      {selected && <div style={{ marginTop: 10, color: palette.teal, fontSize: 20, fontWeight: 900 }}>本期介绍</div>}
     </div>
-    {selected && <div style={{ color: palette.teal, fontSize: 21, fontWeight: 900, flex: "0 0 auto" }}>本期介绍</div>}
   </div>;
 }
 
@@ -213,124 +216,93 @@ function LeaderboardScene({ project, leaderboard, caption, durationFrames }: { p
       <div style={{ marginTop: 10, fontSize: 28, color: palette.muted }}>从本周榜单中，找到值得关注的项目</div>
     </div>
     <div style={{ position: "absolute", top: 480, left: 140, right: 140, display: "flex", flexDirection: "column", alignItems: "center", transform: `scale(${pulse})`, transformOrigin: "center top" }}>
-      {visibleRepos.map((repo, index) => <RankCard key={repo.fullName} repo={repo} selected={locked && repo.rank === project.rank} scanning={!locked && repo.rank === scanRank} index={index} />)}
+      {visibleRepos.map((repo, index) => <RankCard key={repo.fullName} repo={repo} selected={locked && repo.rank === project.rank} scanning={!locked && repo.rank === scanRank} index={index} durationFrames={durationFrames} />)}
     </div>
-    <div style={{ position: "absolute", bottom: 265, left: 0, right: 0, textAlign: "center", fontSize: 30, color: palette.ink, fontWeight: 800 }}>今天介绍：<span style={{ color: palette.coral }}>{selected.fullName}</span></div>
-    <div style={{ position: "absolute", top: 1204, left: 54, transform: `translateY(${Math.sin(frame / 14) * 5}px) rotate(${Math.sin(frame / 22) * 1.5}deg)` }}><CodeMascot /></div>
+    <div style={{ position: "absolute", bottom: 265, left: 76, right: 76, textAlign: "center", color: palette.ink, fontWeight: 800 }}><TextBlock layout={textLayout(`今天介绍：${selected.fullName}`, 928, 84, 30, 28, 800)} name="本期仓库名" progress={textProgress(frame, durationFrames)} /></div>
+    <div style={{ position: "absolute", top: 1450, left: 54, transformOrigin: "top left", transform: `translateY(${Math.sin(frame / 14) * 5}px) scale(.6)` }}><CodeMascot /></div>
     <Subtitle text={caption} durationFrames={durationFrames} />
   </AbsoluteFill>;
 }
 
-function EvidencePanel({ project, assetId }: { project: RenderProject; assetId: string }) {
+function EvidencePanel({ project, assetId, top, durationFrames }: { project: RenderProject; assetId: string; top: number; durationFrames: number }) {
   const asset = project.visualAssets?.find((item) => item.id === assetId);
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   if (!asset) return null;
   const entrance = spring({ frame: frame - 8, fps, config: { damping: 20, mass: 0.8 } });
-  return <div style={{ position: "absolute", top: 674, left: 56, right: 56, height: 770, borderRadius: 30, overflow: "hidden", border: `4px solid ${palette.ink}`, background: "#111820", boxShadow: "0 14px 0 rgba(20,52,74,.18)", opacity: entrance, transform: `translateY(${(1 - entrance) * 30}px)` }}>
-    <div style={{ height: 56, padding: "0 22px", display: "flex", alignItems: "center", justifyContent: "space-between", color: "white", background: palette.ink, fontSize: 21, fontWeight: 900 }}>
-      <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", overflowWrap: "anywhere" }}>{asset.label}</span><span style={{ flex: "0 0 auto", borderRadius: 99, padding: "5px 12px", color: "#173A50", background: "#D9F1EB", fontSize: 17 }}>项目资料</span>
+  const labelLayout = textLayout(asset.label, 778, 84, 23, 22, 900);
+  const headerHeight = labelLayout.height + 24;
+  const height = Math.min(770, 1630 - top);
+  return <div data-text-region="项目资料" style={{ position: "absolute", top, left: 56, right: 56, height, borderRadius: 30, overflow: "hidden", border: `4px solid ${palette.ink}`, background: "#111820", boxShadow: "0 14px 0 rgba(20,52,74,.18)", opacity: entrance, transform: `translateY(${(1 - entrance) * 30}px)` }}>
+    <div style={{ height: headerHeight, padding: "0 22px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, color: "white", background: palette.ink, fontWeight: 900 }}>
+      <TextBlock layout={labelLayout} name="素材说明" progress={textProgress(frame, durationFrames)} /><span style={{ flex: "0 0 auto", borderRadius: 99, padding: "5px 12px", color: "#173A50", background: "#D9F1EB", fontSize: 17 }}>项目资料</span>
     </div>
-    <div style={{ height: 645, display: "grid", placeItems: "center", background: "#111820" }}>
-      <img src={staticFile(asset.path)} style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+    <div style={{ height: height - headerHeight - 50, display: "grid", placeItems: "center", background: "#111820" }}>
+      <Img src={staticFile(asset.path)} style={{ width: "100%", height: "100%", objectFit: "contain" }} />
     </div>
     <div style={{ position: "absolute", left: 18, right: 18, bottom: 10, color: "#CAD8DE", fontSize: 15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", overflowWrap: "anywhere" }}>来源：{asset.sourceUrl} · 资料页中的示例内容，仅用于说明界面</div>
   </div>;
 }
 
-function StoryNode({
-  x,
-  y,
-  width,
-  label,
-  detail,
-  color,
-  visible,
-  icon,
-}: {
-  x: number;
-  y: number;
-  width: number;
-  label: string;
-  detail: string;
-  color: string;
-  visible: number;
-  icon: string;
+function StoryNode({ width, height, label, detail, color, visible, icon, progress, name }: {
+  width: number; height: number; label: string; detail: string; color: string;
+  visible: number; icon: string; progress: number; name: string;
 }) {
-  return <div style={{ position: "absolute", left: x, top: y, width, minHeight: 126, boxSizing: "border-box", padding: "16px 18px", border: `3px solid ${palette.ink}`, borderRadius: 24, background: "#fffef9", boxShadow: `0 8px 0 ${color}55`, opacity: visible, transform: `translateY(${(1 - visible) * 22}px) scale(${0.94 + visible * 0.06})`, transformOrigin: "center bottom" }}>
-    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-      <div style={{ width: 48, height: 48, borderRadius: 15, display: "grid", placeItems: "center", background: color, color: "white", fontSize: 25, fontWeight: 950 }}>{icon}</div>
-      <div style={{ minWidth: 0, overflow: "hidden" }}>
-        <div style={{ color: palette.ink, fontSize: 23, lineHeight: 1.16, fontWeight: 950, maxHeight: 54, ...clampText(2) }}>{label}</div>
-        <div style={{ marginTop: 5, color: palette.muted, fontSize: 17, lineHeight: 1.25, fontWeight: 700, maxHeight: 43, ...clampText(2) }}>{detail}</div>
-      </div>
+  const labelLayout = textLayout(label, width - 80, 34, 23, 22, 950);
+  const detailLayout = textLayout(detail, width - 38, height - 80, 24, 22, 700);
+  return <div data-text-region={name} style={{ width, height, boxSizing: "border-box", padding: 16, border: `3px solid ${palette.ink}`, borderRadius: 24, background: "#fffef9", boxShadow: `0 8px 0 ${color}55`, opacity: visible, transform: `translateY(${(1 - visible) * 18}px) scale(${0.96 + visible * 0.04})` }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <div style={{ width: 30, height: 30, flexShrink: 0, borderRadius: 9, display: "grid", placeItems: "center", background: color, color: "white", fontSize: 20, fontWeight: 950 }}>{icon}</div>
+      <TextBlock layout={labelLayout} name={`${name} 标题`} progress={progress} style={{ color: palette.ink, fontWeight: 950 }} />
     </div>
+    <TextBlock layout={detailLayout} name={`${name} 正文`} progress={progress} style={{ marginTop: 10, color: palette.muted, fontWeight: 700 }} />
   </div>;
-}
-
-function StoryConnector({ x, y, width, visible, color = palette.coral }: { x: number; y: number; width: number; visible: number; color?: string }) {
-  return <div style={{ position: "absolute", left: x, top: y, width: Math.max(0, width * visible), height: 7, borderRadius: 8, background: color, opacity: visible, transformOrigin: "left center" }} />;
-}
-
-function shortCardLabel(value: string, fallback: string, maxLength = 12): string {
-  const firstClause = value.split(/[，,；;：:。.!！？!?]/u)[0]?.trim() || value.trim();
-  const chars = Array.from(firstClause);
-  return chars.length > maxLength ? `${chars.slice(0, maxLength).join("")}…` : firstClause || fallback;
 }
 
 function ConceptWalkthrough({ project, caption, durationFrames }: { project: RenderProject; caption: string; durationFrames: number }) {
   const frame = useCurrentFrame();
-  const t = Math.min(1, Math.max(0, frame / Math.max(1, durationFrames - 1)));
+  const t = textProgress(frame, durationFrames);
   const reveal = (start: number, end: number) => interpolate(t, [start, end], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
   const goal = reveal(0.03, 0.16);
   const roles = reveal(0.18, 0.37);
   const tasks = reveal(0.39, 0.59);
   const governance = reveal(0.61, 0.79);
   const result = reveal(0.81, 0.98);
-  const phase = t < 0.18 ? "先看它解决什么" : t < 0.39 ? "再拆出核心能力" : t < 0.61 ? "按案例步骤运行" : t < 0.81 ? "检查前提和边界" : "最后留下可验证结果";
-  const projectName = shortCardLabel(project.title || project.repo, project.repo, 20);
-  const moduleCards = (project.features.length ? project.features : [project.usage, project.oneLineSummary]).slice(0, 3).map((detail, index) => ({
-    label: shortCardLabel(detail, `核心能力 ${index + 1}`, 10),
-    detail,
-    color: [palette.coral, palette.teal, palette.yellow][index] ?? palette.teal,
-    icon: `${index + 1}`,
-  }));
-  const taskCards = (project.exampleFlow.length ? project.exampleFlow : project.usageSteps).slice(0, 3).map((detail, index) => ({
-    label: `步骤 ${String(index + 1).padStart(2, "0")}`,
-    detail,
-    color: [palette.coral, palette.yellow, palette.teal][index] ?? palette.teal,
-    icon: String(index + 1).padStart(2, "0"),
-  }));
-  const requirement = project.requirements[0] || "按项目文档准备运行环境";
-  const limitation = project.limitations[0] || "实际效果取决于项目配置";
+  const title = textLayout(`${project.title || project.repo} 怎样把问题变成结果？`, 936, 138, 48, 36, 950);
+  const panelTop = 234 + 32 + 15 + title.height + 28;
+  const panelHeight = 1650 - panelTop;
+  const available = panelHeight - 60 - 56 - 3 * 20;
+  const moduleHeight = Math.floor(available * .37);
+  const taskHeight = Math.floor(available * .25);
+  const governanceHeight = Math.floor(available * .18);
+  const resultHeight = available - moduleHeight - taskHeight - governanceHeight;
+  const modules = (project.features.length ? project.features : [project.usage, project.oneLineSummary]).slice(0, 3);
+  const steps = (project.exampleFlow.length ? project.exampleFlow : project.usageSteps).slice(0, 3);
   return <AbsoluteFill style={{ color: palette.ink }}>
     <StageBackground />
-    <div style={{ position: "absolute", top: 174, left: 70, display: "flex", gap: 10, fontSize: 20, fontWeight: 900, color: palette.ink }}><span style={{ borderRadius: 99, padding: "8px 14px", background: palette.teal, color: "white" }}>#{project.rank}</span><span style={{ borderRadius: 99, padding: "8px 14px", background: "white" }}>原理动画 Demo</span></div>
-    <div style={{ position: "absolute", top: 248, left: 72, right: 72 }}>
+    <div style={{ position: "absolute", top: 174, left: 70, display: "flex", gap: 10, fontSize: 20, fontWeight: 900 }}><span style={{ borderRadius: 99, padding: "8px 14px", background: palette.teal, color: "white" }}>#{project.rank}</span><span style={{ borderRadius: 99, padding: "8px 14px", background: "white" }}>原理动画</span></div>
+    <div style={{ position: "absolute", top: 234, left: 72, right: 72 }}>
       <div style={{ fontSize: 24, letterSpacing: 3, color: palette.teal, fontWeight: 950 }}>第二步 · 先理解原理</div>
-      <div style={{ marginTop: 15, fontSize: 53, lineHeight: 1.12, fontWeight: 950, maxHeight: 120, ...clampText(2) }}>{projectName} 怎样把问题变成结果？</div>
-      <div style={{ marginTop: 12, fontSize: 23, lineHeight: 1.35, color: palette.muted, fontWeight: 750, maxHeight: 66, ...clampText(2) }}>把项目的输入、核心能力和案例步骤按顺序画出来。</div>
+      <TextBlock layout={title} name="原理标题" progress={t} style={{ marginTop: 15, fontWeight: 950 }} />
     </div>
-    <div style={{ position: "absolute", left: 58, right: 58, top: 415, height: 1095, border: `3px solid ${palette.ink}`, borderRadius: 34, background: "rgba(255,255,255,.82)", boxShadow: "0 14px 0 rgba(20,52,74,.11)", overflow: "hidden" }}>
-      <div style={{ position: "absolute", top: 24, left: 28, right: 28, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div style={{ color: palette.teal, fontSize: 19, fontWeight: 950, letterSpacing: 2 }}>一张图看懂协作闭环</div>
-        <div style={{ color: palette.coral, fontSize: 19, fontWeight: 950 }}>{phase}</div>
+    <div data-text-region="原理面板" style={{ position: "absolute", left: 58, right: 58, top: panelTop, height: panelHeight, boxSizing: "border-box", padding: 28, border: `3px solid ${palette.ink}`, borderRadius: 34, background: "rgba(255,255,255,.82)", boxShadow: "0 14px 0 rgba(20,52,74,.11)" }}>
+      <div style={{ height: 32, color: palette.teal, fontSize: 19, fontWeight: 950 }}>一张图看懂协作闭环</div>
+      <div style={{ height: 4, margin: "12px 0", background: "rgba(20,52,74,.12)", borderRadius: 5 }}><div style={{ width: `${t * 100}%`, height: "100%", background: `linear-gradient(90deg, ${palette.coral}, ${palette.teal})`, borderRadius: 5 }} /></div>
+      <div style={{ display: "flex", alignItems: "center", gap: 20, height: moduleHeight }}>
+        <StoryNode width={340} height={moduleHeight} label="要解决的问题" detail={project.problem || project.exampleScenario || project.oneLineSummary} color={palette.coral} visible={goal} icon="问" progress={textProgress(frame, durationFrames, .03)} name="原理问题" />
+        <div style={{ width: 30, flexShrink: 0, fontSize: 30, color: palette.coral, opacity: roles }}>➜</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {modules.map((detail, index) => <StoryNode key={index} width={486} height={(moduleHeight - (modules.length - 1) * 10) / modules.length} label={`核心能力 ${index + 1}`} detail={detail} color={[palette.coral, palette.teal, palette.yellow][index]!} visible={reveal(.20 + index * .035, .28 + index * .035) * roles} icon={String(index + 1)} progress={textProgress(frame, durationFrames, .20 + index * .035)} name={`核心能力 ${index + 1}`} />)}
+        </div>
       </div>
-      <div style={{ position: "absolute", top: 84, left: 28, right: 28, height: 4, background: "rgba(20,52,74,.12)", borderRadius: 5 }}><div style={{ width: `${t * 100}%`, height: "100%", background: `linear-gradient(90deg, ${palette.coral}, ${palette.teal})`, borderRadius: 5 }} /></div>
-      <StoryNode x={44} y={132} width={390} label="要解决的问题" detail={project.problem || project.exampleScenario || project.oneLineSummary} color={palette.coral} visible={goal} icon="问" />
-      <StoryConnector x={438} y={194} width={72} visible={roles} />
-      <div style={{ position: "absolute", left: 520, top: 111, color: palette.coral, fontSize: 18, fontWeight: 900, opacity: roles }}>问题被拆成核心能力</div>
-      {moduleCards.map((module, index) => <StoryNode key={`${module.label}-${index}`} x={520 + (index % 2) * 188} y={145 + Math.floor(index / 2) * 142} width={170} label={module.label} detail={module.detail} color={module.color} visible={reveal(0.20 + index * 0.035, 0.28 + index * 0.035) * roles} icon={module.icon} />)}
-      <div style={{ position: "absolute", left: 28, right: 28, top: 441, color: palette.teal, fontSize: 18, fontWeight: 900, opacity: tasks }}>案例按这个顺序一步步运行</div>
-      {taskCards.map((task, index) => <React.Fragment key={task.label}><StoryConnector x={115 + index * 284} y={493} width={110} visible={tasks} color={task.color} /><StoryNode x={38 + index * 284} y={523} width={244} label={task.label} detail={task.detail} color={task.color} visible={reveal(0.43 + index * 0.045, 0.54 + index * 0.045) * tasks} icon={task.icon} /></React.Fragment>)}
-      <div style={{ position: "absolute", left: 28, right: 28, top: 700, height: 3, background: "rgba(20,52,74,.12)" }} />
-      <div style={{ position: "absolute", left: 28, top: 733, color: palette.coral, fontSize: 18, fontWeight: 900, opacity: governance }}>运行前先确认这些条件</div>
-      <div style={{ position: "absolute", left: 38, top: 785, width: 432, height: 132, border: `3px solid ${palette.ink}`, borderRadius: 24, background: "#FFF8EB", padding: "18px 22px", boxSizing: "border-box", opacity: governance, transform: `translateY(${(1 - governance) * 18}px)` }}><div style={{ fontSize: 23, fontWeight: 950 }}>运行前提</div><div style={{ marginTop: 10, color: palette.muted, fontSize: 18, lineHeight: 1.25, fontWeight: 750, maxHeight: 47, ...clampText(2) }}>{requirement}</div></div>
-      <div style={{ position: "absolute", left: 508, top: 785, width: 432, height: 132, border: `3px solid ${palette.ink}`, borderRadius: 24, background: "#E5F4EF", padding: "18px 22px", boxSizing: "border-box", opacity: governance, transform: `translateY(${(1 - governance) * 18}px)` }}><div style={{ fontSize: 23, fontWeight: 950 }}>边界提示</div><div style={{ marginTop: 10, color: palette.muted, fontSize: 18, lineHeight: 1.25, fontWeight: 750, maxHeight: 47, ...clampText(2) }}>{limitation}</div></div>
-      <StoryConnector x={470} y={938} width={36} visible={result} color={palette.teal} /><StoryConnector x={506} y={938} width={36} visible={result} color={palette.teal} />
-      <div style={{ position: "absolute", left: 28, right: 28, top: 960, height: 3, background: "rgba(20,52,74,.12)", opacity: result }} />
-      <div style={{ position: "absolute", left: 28, right: 28, top: 974, color: palette.teal, fontSize: 18, lineHeight: 1.2, fontWeight: 900, opacity: result, maxHeight: 44, ...clampText(2) }}>结果不只是一句“完成”，而是一组可以回看的记录</div>
-      <div style={{ position: "absolute", left: 38, right: 38, top: 1010, color: palette.ink, fontSize: 21, lineHeight: 1.2, fontWeight: 950, opacity: result, maxHeight: 68, ...clampText(2) }}>{project.exampleResult || project.oneLineSummary}</div>
+      <div style={{ display: "flex", gap: 20, height: taskHeight, marginTop: 20 }}>
+        {steps.map((detail, index) => <StoryNode key={index} width={285} height={taskHeight} label={`步骤 ${index + 1}`} detail={detail} color={[palette.coral, palette.yellow, palette.teal][index]!} visible={reveal(.43 + index * .045, .54 + index * .045) * tasks} icon={String(index + 1)} progress={textProgress(frame, durationFrames, .43 + index * .045)} name={`原理步骤 ${index + 1}`} />)}
+      </div>
+      <div style={{ display: "flex", gap: 20, height: governanceHeight, marginTop: 20 }}>
+        <StoryNode width={438} height={governanceHeight} label="运行前提" detail={project.requirements[0] || "按项目文档准备运行环境"} color={palette.yellow} visible={governance} icon="!" progress={textProgress(frame, durationFrames, .61)} name="原理运行前提" />
+        <StoryNode width={438} height={governanceHeight} label="边界提示" detail={project.limitations[0] || "实际效果取决于项目配置"} color={palette.teal} visible={governance} icon="!" progress={textProgress(frame, durationFrames, .61)} name="原理边界提示" />
+      </div>
+      <div style={{ marginTop: 20 }}><StoryNode width={896} height={resultHeight} label="可验证结果" detail={project.exampleResult || project.oneLineSummary} color={palette.teal} visible={result} icon="✓" progress={textProgress(frame, durationFrames, .81)} name="原理结果" /></div>
     </div>
     <Subtitle text={caption} durationFrames={durationFrames} />
   </AbsoluteFill>;
@@ -367,27 +339,36 @@ function ExplainerScene({ project, scene, caption, index, durationFrames }: { pr
   const content = sections[scene] ?? sections.problem!;
   const evidenceByScene: Record<string, string> = { case: "org-chart", dashboard: "dashboard", setup: "setup-wizard", workflow: "task-inbox" };
   const preferredEvidenceId = evidenceByScene[scene];
-  const preferredAsset = project.visualAssets?.find((asset) => asset.id === preferredEvidenceId);
+  const visualAssets = project.visualAssets?.filter((asset) => !isBadgeAsset(asset));
+  const preferredAsset = visualAssets?.find((asset) => asset.id === preferredEvidenceId);
   const fallbackIndex: Record<string, number> = { case: 0, dashboard: 1, setup: 2, workflow: 3 };
-  const evidenceId = preferredAsset?.id ?? project.visualAssets?.[fallbackIndex[scene] ?? 0]?.id;
-  const hasEvidence = Boolean(evidenceId && project.visualAssets?.some((asset) => asset.id === evidenceId));
+  const evidenceId = preferredAsset?.id ?? visualAssets?.[fallbackIndex[scene] ?? 0]?.id;
+  const hasEvidence = Boolean(evidenceId && visualAssets?.some((asset) => asset.id === evidenceId));
+  const main = textLayout(content.main, 868, 336, 32, 28, 850);
+  const detail = textLayout(content.detail, 876, 178, 24, 22, 700);
+  const title = textLayout(sceneTitles[scene] ?? project.title, 928, 145, 54, 44, 950);
+  const bodyTop = Math.max(420, 234 + 32 + 16 + title.height + 28);
+  const mainHeight = main.height + 50;
+  const detailHeight = detail.height + 34;
+  const contentBottom = bodyTop + mainHeight + 13 + detailHeight;
+  const visualTop = Math.max(674, contentBottom + 34);
   const opacity = interpolate(progress, [0, 1], [0, 1]);
   if (scene === "concept") return <ConceptWalkthrough project={project} caption={caption} durationFrames={durationFrames} />;
   return <AbsoluteFill style={{ color: palette.ink }}>
     <StageBackground />
     <div style={{ position: "absolute", top: 234, left: 76, right: 76, opacity, transform: `translateY(${(1 - progress) * 35}px)` }}>
       <div style={{ fontSize: 24, letterSpacing: 3, color: content.color, fontWeight: 950 }}>{content.kicker}</div>
-      <div style={{ marginTop: 16, fontSize: 54, lineHeight: 1.16, fontWeight: 950, maxHeight: 150, ...clampText(2) }}>{sceneTitles[scene] ?? project.title}</div>
+      <TextBlock layout={title} name={`${scene} 场景标题`} progress={textProgress(frame, durationFrames)} style={{ marginTop: 16, fontWeight: 950 }} />
     </div>
-    <div style={{ position: "absolute", top: 420, left: 76, right: 76, display: "flex", flexDirection: "column", gap: 13 }}>
-      <div style={{ border: `3px solid ${palette.ink}`, borderRadius: 24, background: "#fffef9", padding: "22px 27px", boxShadow: `0 9px 0 ${content.color}`, fontSize: 32, lineHeight: 1.28, fontWeight: 850, opacity, transform: `translateX(${(1 - progress) * 36}px)`, maxHeight: 138, ...clampText(3) }}>{content.main}</div>
-      <div style={{ borderRadius: 18, background: "rgba(255,255,255,.78)", padding: "17px 24px", fontSize: 22, lineHeight: 1.32, color: palette.muted, fontWeight: 700, opacity: Math.max(0, progress - 0.2), maxHeight: 86, ...clampText(3) }}>{content.detail}</div>
+    <div style={{ position: "absolute", top: bodyTop, left: 76, right: 76, display: "flex", flexDirection: "column", gap: 13 }}>
+      <div data-text-region={`${scene} 主说明卡片`} style={{ height: mainHeight, boxSizing: "border-box", border: `3px solid ${palette.ink}`, borderRadius: 24, background: "#fffef9", padding: "22px 27px", boxShadow: `0 9px 0 ${content.color}`, fontWeight: 850, opacity, transform: `translateX(${(1 - progress) * 36}px)` }}><TextBlock layout={main} name={`${scene} 主说明`} progress={textProgress(frame, durationFrames)} /></div>
+      <div data-text-region={`${scene} 补充说明卡片`} style={{ height: detailHeight, boxSizing: "border-box", borderRadius: 18, background: "rgba(255,255,255,.78)", padding: "17px 24px", color: palette.muted, fontWeight: 700, opacity: Math.max(0, progress - 0.2) }}><TextBlock layout={detail} name={`${scene} 补充说明`} progress={textProgress(frame, durationFrames)} /></div>
     </div>
     {!hasEvidence && <>
-      <div style={{ position: "absolute", top: 1010, right: 78, transform: `translateY(${Math.sin(frame / 14) * 5}px) rotate(${Math.sin(frame / 22) * 1.5}deg) scale(.82)`, transformOrigin: "bottom right", opacity }}><CodeMascot /></div>
-      <SceneDiagram project={project} scene={scene} />
+      <div style={{ position: "absolute", top: Math.max(900, visualTop), right: 78, transform: `translateY(${Math.sin(frame / 14) * 5}px) rotate(${Math.sin(frame / 22) * 1.5}deg) scale(.65)`, transformOrigin: "top right", opacity }}><CodeMascot /></div>
+      <SceneDiagram project={project} scene={scene} top={Math.max(960, visualTop)} durationFrames={durationFrames} />
     </>}
-    {hasEvidence && <EvidencePanel project={project} assetId={evidenceId!} />}
+    {hasEvidence && <EvidencePanel project={project} assetId={evidenceId!} top={visualTop} durationFrames={durationFrames} />}
     <div style={{ position: "absolute", top: 174, left: 70, display: "flex", gap: 10, fontSize: 20, fontWeight: 900, color: palette.ink }}><span style={{ borderRadius: 99, padding: "8px 14px", background: content.color, color: "white" }}>#{project.rank}</span><span style={{ borderRadius: 99, padding: "8px 14px", background: "white" }}>{index + 1} / {project.narrationSegments.length}</span></div>
     <Subtitle text={caption} durationFrames={durationFrames} />
   </AbsoluteFill>;
@@ -424,14 +405,14 @@ function ChapterProgress({ project }: { project: RenderProject }) {
       const fillColor = completed ? palette.teal : active ? palette.coral : "transparent";
       const fill = completed ? 100 : active ? groupProgress : 0;
       const baseColor = index <= currentChapter ? "rgba(255,255,255,.86)" : "rgba(255,255,255,.52)";
-      return <div key={group.label} style={{ position: "relative", flex: 1, minWidth: 0, display: "grid", placeItems: "center", borderLeft: index === 0 ? "none" : `2px solid rgba(20,52,74,.2)`, background: `linear-gradient(90deg, ${fillColor} ${fill}%, ${baseColor} ${fill}%)`, color: completed ? "white" : active ? palette.ink : palette.muted, fontSize: group.label.length > 4 ? 15 : 17, fontWeight: 950, textAlign: "center", textShadow: completed ? "0 1px 0 rgba(20,52,74,.25)" : "none" }}><span style={{ position: "relative", zIndex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "100%", padding: "0 5px" }}>{group.label}</span></div>;
+      return <div key={group.label} style={{ position: "relative", flex: 1, minWidth: 0, display: "grid", placeItems: "center", borderLeft: index === 0 ? "none" : `2px solid rgba(20,52,74,.2)`, background: `linear-gradient(90deg, ${fillColor} ${fill}%, ${baseColor} ${fill}%)`, color: completed ? "white" : active ? palette.ink : palette.muted, fontSize: group.label.length > 4 ? 15 : 17, fontWeight: 950, textAlign: "center", textShadow: completed ? "0 1px 0 rgba(20,52,74,.25)" : "none" }}><span style={{ position: "relative", zIndex: 1, whiteSpace: "nowrap", padding: "0 5px" }}>{group.label}</span></div>;
     })}
   </div>;
 }
 
 export const ProjectVideo: React.FC<VideoProps> = ({ project, leaderboard }) => {
   let from = 0;
-  return <AbsoluteFill style={{ backgroundColor: palette.paper, fontFamily: "Arial, 'Microsoft YaHei', sans-serif" }}>
+  return <AbsoluteFill style={{ backgroundColor: palette.paper, fontFamily: VIDEO_FONT }}><LayoutGuard>
     {project.narrationSegments.map((segment, index) => {
       const frames = framesForMs(segment.durationMs);
       const start = from;
@@ -444,5 +425,5 @@ export const ProjectVideo: React.FC<VideoProps> = ({ project, leaderboard }) => 
       </Sequence>;
     })}
     <ChapterProgress project={project} />
-  </AbsoluteFill>;
+  </LayoutGuard></AbsoluteFill>;
 };

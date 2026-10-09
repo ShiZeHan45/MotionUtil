@@ -126,13 +126,6 @@ export async function synthesizeScripts(scripts: ProjectScript[], audioDirectory
   if (projects.length !== scripts.length) throw new Error(`Kokoro 返回项目数量错误：请求 ${scripts.length} 个，返回 ${projects.length} 个`);
 
   const durationMs = (project: RenderProject) => project.narrationSegments.reduce((total, segment) => total + segment.durationMs, 0);
-  const longestDurationMs = Math.max(...projects.map(durationMs));
-  if (longestDurationMs > MAX_VIDEO_DURATION_MS && longestDurationMs <= MAX_VIDEO_DURATION_MS + 2_000) {
-    const retrySpeed = Math.min(3, Math.max(config.kokoroSpeed + 0.02, config.kokoroSpeed * 1.03));
-    console.log(`[节点 4] 检测到最长配音仅超出 ${(longestDurationMs - MAX_VIDEO_DURATION_MS) / 1_000} 秒，将以语速 ${retrySpeed.toFixed(2)} 自动重试一次`);
-    projects = await runKokoro(prepared, audioDirectory, retrySpeed);
-    if (projects.length !== scripts.length) throw new Error(`Kokoro 重试返回项目数量错误：请求 ${scripts.length} 个，返回 ${projects.length} 个`);
-  }
 
   for (const [projectIndex, project] of projects.entries()) {
     const source = scripts[projectIndex];

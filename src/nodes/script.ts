@@ -5,6 +5,7 @@ import type { ProjectScript, RepoFacts } from "../types";
 import { config } from "../lib/config";
 import { readJson, safeJson, writeJson } from "../lib/io";
 import { repoSlug } from "../lib/paths";
+import { requestChatCompletion, type ChatMessage } from "../lib/chat-completion";
 
 const PROMPT_VERSION = "gh-weekly-script-v4";
 const responseSchema = z.object({
@@ -46,7 +47,7 @@ function cacheKey(facts: RepoFacts): string {
     sources: facts.sources,
     visualAssets: facts.visualAssets?.map(({ id, label, sourceUrl }) => ({ id, label, sourceUrl })) ?? [],
   };
-  return createHash("sha256").update(JSON.stringify({ prompt: PROMPT_VERSION, model: config.openAiModel, facts: compact })).digest("hex");
+  return createHash("sha256").update(JSON.stringify({ prompt: PROMPT_VERSION, service: config.openAiBaseUrl, model: config.openAiModel, facts: compact })).digest("hex");
 }
 
 function factsForPrompt(facts: RepoFacts) {
@@ -80,6 +81,18 @@ function validateScriptCoverage(script: ProjectScript, source: RepoFacts): void 
   if (charCount < 450 || charCount > 1_350) throw new Error(`${source.fullName} 讲稿长度为 ${charCount} 字符，预期 450–1,350；实际时长仍以 TTS 测量为准`);
 }
 
+function parseScripts(content: string, facts: RepoFacts[]): ProjectScript[] {
+  const parsed = responseSchema.parse(safeJson(content));
+  if (parsed.scripts.length !== facts.length) throw new Error(`讲稿数量错误：请求 ${facts.length} 个，返回 ${parsed.scripts.length} 个`);
+  const byRepo = new Map(parsed.scripts.map((script) => [script.repo.toLowerCase(), script as ProjectScript]));
+  return facts.map((source) => {
+    const script = byRepo.get(source.fullName.toLowerCase());
+    if (!script) throw new Error(`模型漏掉仓库 ${source.fullName}`);
+    validateScriptCoverage(script, source);
+    return { ...script, visualAssets: source.visualAssets };
+  });
+}
+
 async function generateBatch(facts: RepoFacts[]): Promise<ProjectScript[]> {
   if (!config.openAiApiKey || !config.openAiModel) {
     throw new Error("节点 3 需要配置 OPENAI_API_KEY 和 OPENAI_MODEL。请复制 .env.example 为 .env 并填写；脚本生成结果会按输入与模型缓存。");
@@ -98,36 +111,36 @@ async function generateBatch(facts: RepoFacts[]): Promise<ProjectScript[]> {
     "不要写‘想试用的话’、关注、点赞、评论等营销 CTA。视频只讲解、展示案例和讲清使用方法。",
     "保留英文项目名和必要技术词，首次出现的术语用日常语言解释，不逐字念 README，不使用 Markdown、列表符号或括号里的舞台指令。",
     "数量、日期等容易被语音合成器误读时，在 spokenText 中改写为完整中文读法，并保留量词单位；text 仍保留适合屏幕阅读的阿拉伯数字。其他部分不要重复整段。",
+    "字段字数与数组项数必须符合以下 JSON Schema，不能缺字段或输出超长文字：",
+    JSON.stringify(z.toJSONSchema(responseSchema)),
   ].join("\n");
-  const response = await fetch(`${config.openAiBaseUrl}/chat/completions`, {
-    method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${config.openAiApiKey}` },
-    body: JSON.stringify({
-      model: config.openAiModel,
-      temperature: 0.35,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: JSON.stringify({ projects: facts.map(factsForPrompt) }) },
-      ],
-    }),
-    signal: AbortSignal.timeout(300_000),
-  });
-  if (!response.ok) throw new Error(`讲稿模型请求失败：HTTP ${response.status}: ${(await response.text()).slice(0, 1_000)}`);
-  const body = (await response.json()) as { choices?: Array<{ message?: { content?: string | null } }> };
-  const content = body.choices?.[0]?.message?.content;
-  if (!content) throw new Error("讲稿模型返回为空");
-  const parsed = responseSchema.parse(safeJson(content));
-  if (parsed.scripts.length !== facts.length) throw new Error(`讲稿数量错误：请求 ${facts.length} 个，返回 ${parsed.scripts.length} 个`);
-  const byRepo = new Map(parsed.scripts.map((script) => [script.repo.toLowerCase(), script as ProjectScript]));
-  return facts.map((source) => {
-    const script = byRepo.get(source.fullName.toLowerCase());
-    if (!script) throw new Error(`模型漏掉仓库 ${source.fullName}`);
-    validateScriptCoverage(script, source);
-    return { ...script, visualAssets: source.visualAssets };
-  });
+  const messages: ChatMessage[] = [
+    { role: "system", content: system },
+    { role: "user", content: JSON.stringify({ projects: facts.map(factsForPrompt) }) },
+  ];
+  let content = await requestChatCompletion(messages);
+  try {
+    return parseScripts(content, facts);
+  } catch (error) {
+    const detail = error instanceof z.ZodError
+      ? error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("；")
+      : error instanceof SyntaxError ? "结果不是完整的 JSON" : error instanceof Error ? error.message : String(error);
+    console.log(`[节点 3] 讲稿格式需要修复：${detail}；向同一模型修复一次`);
+    content = await requestChatCompletion([
+      ...messages,
+      { role: "assistant", content },
+      { role: "user", content: `修复以上结果，只输出符合 JSON Schema 的完整 JSON。错误：${detail}` },
+    ]);
+    try { return parseScripts(content, facts); }
+    catch (repairError) {
+      const reason = repairError instanceof Error ? repairError.message : String(repairError);
+      throw new Error(`${facts.map((item) => item.fullName).join("、")} 讲稿修复后仍不符合要求：${reason}`);
+    }
+  }
 }
 
 export async function generateScripts(facts: RepoFacts[], outputDirectory: string): Promise<ProjectScript[]> {
+  console.log(`[节点 3] 模型服务：${config.openAiBaseUrl}；模型：${config.openAiModel || "未配置"}；配音语速：${config.kokoroSpeed}`);
   const cacheDirectory = path.resolve(".cache", "scripts");
   const cached = new Map<string, ProjectScript>();
   const pending: RepoFacts[] = [];
@@ -144,11 +157,14 @@ export async function generateScripts(facts: RepoFacts[], outputDirectory: strin
   if (pending.length) {
     console.log(`[节点 3] 为 ${pending.length} 个未缓存项目逐个生成讲稿，避免单次请求超时`);
     for (const item of pending) {
+      console.log(`[节点 3] 正在生成 ${item.fullName} 的九段讲稿`);
       const generated = await generateBatch([item]);
       const script = generated[0];
       if (!script) throw new Error(`讲稿生成缺失：${item.fullName}`);
       cached.set(item.fullName.toLowerCase(), { ...script, visualAssets: item.visualAssets });
       await writeJson(path.join(cacheDirectory, `${repoSlug(item.fullName)}-${cacheKey(item)}.json`), script);
+      await writeJson(path.join(outputDirectory, `${repoSlug(item.fullName)}.json`), script);
+      console.log(`[节点 3] ${cached.size}/${facts.length} ${item.fullName} 讲稿已保存`);
     }
   }
   const ordered = facts.map((item) => {

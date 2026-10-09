@@ -2,9 +2,16 @@ namespace GitHubTrendingVideo.Models;
 
 public sealed class AppSettings
 {
+    public const string BuzzBaseUrl = "https://api.buzzai.cc/v1";
+
+    public static string ResolveModelBaseUrl(string? value, string? apiKey) =>
+        apiKey?.Trim().StartsWith("sk-buzz-", StringComparison.Ordinal) == true || string.IsNullOrWhiteSpace(value)
+            ? BuzzBaseUrl
+            : value.Trim().TrimEnd('/');
+
     public string ProjectDirectory { get; set; } = "";
     public string OutputDirectory { get; set; } = "";
-    public string OpenAiBaseUrl { get; set; } = "https://api.openai.com/v1";
+    public string OpenAiBaseUrl { get; set; } = BuzzBaseUrl;
     public string OpenAiModel { get; set; } = "";
     public string OpenAiApiKey { get; set; } = "";
     public string GithubToken { get; set; } = "";
@@ -12,7 +19,7 @@ public sealed class AppSettings
     public string KokoroModel { get; set; } = "hexgrad/Kokoro-82M-v1.1-zh";
     public string KokoroVoice { get; set; } = "zf_001";
     public string KokoroDevice { get; set; } = "cpu";
-    public decimal KokoroSpeed { get; set; } = 1.3m;
+    public decimal KokoroSpeed { get; set; } = 1.0m;
     public string RemotionBrowserExecutable { get; set; } = "";
 }
 

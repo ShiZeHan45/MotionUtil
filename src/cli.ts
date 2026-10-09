@@ -167,7 +167,7 @@ async function main(): Promise<void> {
     "  pnpm run run                  # 节点 1–5：完整串行执行一次",
     "  pnpm run dev                  # Remotion Studio 预览模板样例",
     "  可选参数：--run-id <期次目录名>",
-    "  配置：复制 .env.example 为 .env，填入模型、GitHub token 和 Kokoro 设置。",
+    "  配置：复制 .env.example 为 .env，填入模型、GitHub token、GITHUB_TOP_N 和 Kokoro 设置。",
   ].join("\n"));
 }
 

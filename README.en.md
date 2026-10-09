@@ -6,7 +6,7 @@ Windows-first prototype for turning GitHub Trending weekly projects into short, 
 
 1. Scrape the weekly GitHub Trending page and save both structured JSON and the raw HTML snapshot. Parsing fails closed if the expected cards or required project count disappear.
 2. Fetch repository metadata and a bounded README excerpt using the GitHub REST API.
-3. Generate six fixed narration sections for the top five projects in one OpenAI-compatible request. Valid scripts are cached by model and source-data hash.
+3. Generate fixed narration sections for the configured number of projects in one OpenAI-compatible request. Set the count with `GITHUB_TOP_N` (the desktop app exposes the same setting). Valid scripts are cached by model and source-data hash.
 4. Start one local Kokoro Python process per run and synthesize per-scene WAV files. English repository names go through Kokoro's English G2P. The exact audio durations become the scene durations.
 5. Render a 1080×1920 Remotion animation with a leaderboard selection intro and flat-vector infographic scenes. The TTS track is embedded in the rendered MP4.
 
@@ -25,7 +25,7 @@ Install JavaScript dependencies from this directory:
 pnpm install
 ```
 
-Copy `.env.example` to `.env`, then set `GITHUB_TOKEN`, `OPENAI_API_KEY`, and `OPENAI_MODEL`. Set `KOKORO_PYTHON` to the Python executable in the isolated environment where Kokoro is installed. The model is downloaded to `KOKORO_CACHE_DIR` on the first node 4 run. The default voice is `zf_001`, speed is `1.3`, and the short pause between scene WAVs is 200 ms.
+Copy `.env.example` to `.env`, then set `GITHUB_TOKEN`, `OPENAI_API_KEY`, and `OPENAI_MODEL`. Set `KOKORO_PYTHON` to the Python executable in the isolated environment where Kokoro is installed. The model is downloaded to `KOKORO_CACHE_DIR` on the first node 4 run. The default voice is `zf_001`, speed is `1.0`, and the short pause between scene WAVs is 200 ms.
 
 Recommended isolated setup:
 

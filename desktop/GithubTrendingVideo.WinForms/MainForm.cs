@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Globalization;
+using System.Media;
 using System.Text.Json;
 using GitHubTrendingVideo.Models;
 using GitHubTrendingVideo.Services;
@@ -20,18 +22,27 @@ public sealed class MainForm : Form
     private readonly Label _runLabel = new() { AutoSize = false, Width = 150, Height = 24, AutoEllipsis = true, Text = "尚未开始运行", ForeColor = Color.FromArgb(93, 173, 226), Font = new Font("Microsoft YaHei UI", 10, FontStyle.Bold) };
     private readonly Label _overallLabel = new() { AutoSize = true, Text = "整体进度 0/5" };
     private readonly Label _overallEtaLabel = new() { AutoSize = false, Width = 150, Height = 24, AutoEllipsis = true, Text = "预计剩余 正在估算…", ForeColor = Color.FromArgb(71, 85, 105) };
-    private readonly ProgressBar _overallProgress = new() { Width = 220, Height = 16, Style = ProgressBarStyle.Continuous };
+    private readonly ProgressBar _overallProgress = new() { Width = 220, Height = 16, Maximum = 5, Style = ProgressBarStyle.Continuous };
     private readonly Label _projectLabel = new() { AutoEllipsis = true, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft };
     private readonly Label _environmentSummary = new() { AutoSize = true, Text = "正在检查环境…", ForeColor = Color.DimGray };
     private readonly FlowLayoutPanel _environmentList = new() { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, Padding = new Padding(18, 14, 18, 14) };
     private readonly Dictionary<string, EnvironmentCard> _environmentCards = [];
     private readonly Dictionary<string, TextBox> _settingBoxes = [];
     private readonly ComboBox _deviceBox = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 150 };
+    private readonly ComboBox _voiceBox = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 210, IntegralHeight = false, MaxDropDownItems = 18 };
     private readonly NumericUpDown _speedBox = new() { Minimum = 0.1m, Maximum = 3m, DecimalPlaces = 2, Increment = 0.05m, Width = 150 };
     private readonly NumericUpDown _topNBox = new() { Minimum = 1, Maximum = 20, DecimalPlaces = 0, Increment = 1, Width = 150 };
     private readonly Label _outputLabel = new() { AutoEllipsis = true, Dock = DockStyle.Fill };
     private Button? _resumeButton;
     private CancellationTokenSource? _runCancellation;
+    private CancellationTokenSource? _previewCancellation;
+    private CancellationTokenSource? _voiceWarmupCancellation;
+    private Task? _voiceWarmupTask;
+    private SoundPlayer? _previewPlayer;
+    private Button? _previewVoiceButton;
+    private Label? _voiceStatusLabel;
+    private VoiceCacheIndicator? _voiceCacheProgress;
+    private bool _changingVoiceForPreview;
     private readonly System.Windows.Forms.Timer _etaTimer = new() { Interval = 1000 };
     private readonly DateTimeOffset?[] _nodeStartedAt = new DateTimeOffset?[5];
     private readonly Dictionary<int, double> _nodeDurationsSeconds = [];
@@ -58,8 +69,12 @@ public sealed class MainForm : Form
         BuildUi();
         WireEvents();
         _etaTimer.Tick += (_, _) => UpdateEtaDisplay();
-        FormClosed += (_, _) => _etaTimer.Dispose();
+        FormClosed += (_, _) => { _etaTimer.Dispose(); StopVoicePreview(); StopVoicePreviewWarmup(); };
         Shown += async (_, _) => await RefreshAllAsync();
+        _tabs.SelectedIndexChanged += (_, _) =>
+        {
+            if (_tabs.SelectedIndex == 2) StartVoicePreviewWarmup();
+        };
     }
 
     private AppSettings LoadSettingsSafely()
@@ -180,7 +195,7 @@ public sealed class MainForm : Form
         table.Controls.Add(note, 0, 0); table.SetColumnSpan(note, 3);
         AddSetting(table, "项目目录", "project", _settings.ProjectDirectory, "选择包含 package.json 的项目目录", browse: true);
         AddSetting(table, "视频输出目录", "output", _settings.OutputDirectory, "留空则使用项目目录下的 output", browse: true);
-        AddSetting(table, "模型服务地址", "baseUrl", _settings.OpenAiBaseUrl, "OpenAI Chat Completions 兼容接口，例如 https://api.openai.com/v1");
+        AddSetting(table, "模型服务地址", "baseUrl", _settings.OpenAiBaseUrl, "OpenAI 兼容接口，例如 https://api.buzzai.cc/v1");
         AddSetting(table, "模型名称", "model", _settings.OpenAiModel, "生成讲稿使用的模型名");
         AddSetting(table, "模型 API Key", "apiKey", _settings.OpenAiApiKey, "必填；保存时加密", password: true);
         AddSetting(table, "GitHub Token", "githubToken", _settings.GithubToken, "可选，用于降低公开 API 限流", password: true);
@@ -189,7 +204,7 @@ public sealed class MainForm : Form
         var topNHelp = new Label { Text = "节点 2 获取周榜前 N 个项目（1–20）", AutoSize = true, ForeColor = Color.FromArgb(100, 116, 139), Margin = new Padding(0, 12, 0, 12), MaximumSize = new Size(300, 0) };
         table.RowStyles.Add(new RowStyle(SizeType.AutoSize)); table.Controls.Add(topNLabel, 0, table.RowCount); table.Controls.Add(_topNBox, 1, table.RowCount); table.Controls.Add(topNHelp, 2, table.RowCount); table.RowCount++;
         AddSetting(table, "Kokoro 模型", "kokoroModel", _settings.KokoroModel, "默认 hexgrad/Kokoro-82M-v1.1-zh");
-        AddSetting(table, "Kokoro 音色", "voice", _settings.KokoroVoice, "例如 zf_001");
+        AddVoiceSetting(table);
         AddSetting(table, "Remotion 浏览器路径", "browser", _settings.RemotionBrowserExecutable, "留空则使用软件下载的 Headless Chrome", browse: true);
         var deviceLabel = new Label { Text = "Kokoro 设备", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(0, 12, 12, 12) };
         _deviceBox.Items.AddRange(["cpu", "cuda"]); _deviceBox.SelectedItem = _settings.KokoroDevice; if (_deviceBox.SelectedIndex < 0) _deviceBox.SelectedIndex = 0; _deviceBox.Margin = new Padding(0, 8, 12, 8);
@@ -225,6 +240,344 @@ public sealed class MainForm : Form
             table.Controls.Remove(helpLabel); helpLabel.MaximumSize = new Size(138, 0); var flow = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = false, WrapContents = false, FlowDirection = FlowDirection.LeftToRight }; flow.Controls.Add(helpLabel); flow.Controls.Add(browseButton); table.Controls.Add(flow, 2, row);
         }
         table.RowCount++;
+    }
+
+    private void AddVoiceSetting(TableLayoutPanel table)
+    {
+        var row = table.RowCount;
+        table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        var caption = new Label { Text = "Kokoro 音色", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(0, 12, 12, 12) };
+        _voiceBox.Margin = new Padding(0, 8, 8, 8);
+        var refreshButton = Button("刷新", Color.FromArgb(100, 116, 139), 62, 28);
+        refreshButton.Margin = new Padding(0, 8, 8, 8);
+        refreshButton.Click += (_, _) => { RefreshVoiceChoices(); StartVoicePreviewWarmup(); };
+        _previewVoiceButton = Button("连续试听", Color.FromArgb(37, 99, 235), 90, 28);
+        _previewVoiceButton.Margin = new Padding(0, 8, 0, 8);
+        _previewVoiceButton.Click += async (_, _) =>
+        {
+            if (_previewCancellation is not null) StopVoicePreview();
+            else await PreviewVoiceAsync();
+        };
+        var controls = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, WrapContents = false, Margin = new Padding(0) };
+        controls.Controls.AddRange([_voiceBox, refreshButton, _previewVoiceButton]);
+        _voiceStatusLabel = new Label { Text = "音色列表来自已下载的 Kokoro 模型；试听文件会后台准备。", AutoEllipsis = true, Location = new Point(25, 0), Height = 24, Width = 190, ForeColor = Color.FromArgb(100, 116, 139) };
+        _voiceCacheProgress = new VoiceCacheIndicator { Location = new Point(1, 3), Size = new Size(20, 20), AccessibleName = "音色试听缓存进度" };
+        var voiceCachePanel = new Panel { Dock = DockStyle.Fill, MinimumSize = new Size(210, 26), Margin = new Padding(0, 8, 0, 8) };
+        voiceCachePanel.Controls.Add(_voiceCacheProgress);
+        voiceCachePanel.Controls.Add(_voiceStatusLabel);
+        table.Controls.Add(caption, 0, row);
+        table.Controls.Add(controls, 1, row);
+        table.Controls.Add(voiceCachePanel, 2, row);
+        _voiceBox.SelectedIndexChanged += (_, _) =>
+        {
+            if (!_changingVoiceForPreview && _previewCancellation is not null) StopVoicePreview();
+        };
+        RefreshVoiceChoices();
+        if (_settingBoxes.TryGetValue("kokoroModel", out var modelBox))
+            modelBox.TextChanged += (_, _) => { StopVoicePreviewWarmup(); RefreshVoiceChoices(); };
+        table.RowCount++;
+    }
+
+    private void RefreshVoiceChoices()
+    {
+        var selectedVoice = _voiceBox.SelectedItem?.ToString() ?? _settings.KokoroVoice;
+        var model = _settingBoxes.GetValueOrDefault("kokoroModel")?.Text.Trim();
+        if (string.IsNullOrWhiteSpace(model)) model = _settings.KokoroModel;
+        var project = _paths.ResolveProjectDirectory(_settings);
+        if (!string.IsNullOrWhiteSpace(_settingBoxes.GetValueOrDefault("project")?.Text.Trim()))
+            project = _settingBoxes["project"].Text.Trim();
+
+        var voices = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (!string.IsNullOrWhiteSpace(project) && !string.IsNullOrWhiteSpace(model))
+        {
+            // Hugging Face cache encodes a repository slash as two dashes.
+            var hfModelDirectory = Path.Combine(_paths.KokoroCacheDirectory(project), "hub", "models--" + model.Replace("/", "--", StringComparison.Ordinal));
+            var modelSnapshots = Path.Combine(hfModelDirectory, "snapshots");
+            if (Directory.Exists(modelSnapshots))
+            {
+                foreach (var snapshot in Directory.EnumerateDirectories(modelSnapshots))
+                {
+                    var voiceDirectory = Path.Combine(snapshot, "voices");
+                    if (!Directory.Exists(voiceDirectory)) continue;
+                    foreach (var file in Directory.EnumerateFiles(voiceDirectory, "*.pt"))
+                        voices.Add(Path.GetFileNameWithoutExtension(file));
+                }
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(selectedVoice)) voices.Add(selectedVoice);
+        _voiceBox.BeginUpdate();
+        _voiceBox.Items.Clear();
+        _voiceBox.Items.AddRange(voices.ToArray());
+        _voiceBox.SelectedItem = voices.FirstOrDefault(voice => string.Equals(voice, selectedVoice, StringComparison.OrdinalIgnoreCase));
+        if (_voiceBox.SelectedIndex < 0 && _voiceBox.Items.Count > 0) _voiceBox.SelectedIndex = 0;
+        _voiceBox.EndUpdate();
+
+        var cachedCount = 0;
+        if (!string.IsNullOrWhiteSpace(project) && !string.IsNullOrWhiteSpace(model))
+            cachedCount = voices.Count(voice => File.Exists(VoicePreviewPath(project, model, _speedBox.Value, voice)));
+        if (voices.Count <= 1)
+            SetVoiceCacheProgress(cachedCount, voices.Count, "未发现已下载的音色文件；可先在“环境与下载”下载模型。" );
+        else
+            SetVoiceCacheProgress(cachedCount, voices.Count, $"已缓存 {cachedCount}/{voices.Count} 个音色，试听文件会后台准备。" );
+    }
+
+    private void SetVoiceCacheProgress(int cached, int total, string? status = null)
+    {
+        _voiceCacheProgress?.SetProgress(cached, total);
+        if (_voiceStatusLabel is not null && !string.IsNullOrWhiteSpace(status)) _voiceStatusLabel.Text = status;
+    }
+
+    private string CurrentVoiceProject()
+    {
+        var project = _paths.ResolveProjectDirectory(_settings);
+        var boxValue = _settingBoxes.GetValueOrDefault("project")?.Text.Trim();
+        return string.IsNullOrWhiteSpace(boxValue) ? project : boxValue;
+    }
+
+    private string CurrentVoiceModel() => _settingBoxes.GetValueOrDefault("kokoroModel")?.Text.Trim() ?? _settings.KokoroModel;
+
+    private static string PreviewCacheKey(string value) => string.Concat(value.Select(character => char.IsLetterOrDigit(character) || character is '_' or '-' or '.' ? character : '_'));
+
+    private string VoicePreviewDirectory(string project, string model, decimal speed)
+    {
+        var modelKey = PreviewCacheKey(model.Replace("/", "--", StringComparison.Ordinal));
+        var speedKey = speed.ToString("0.00", CultureInfo.InvariantCulture);
+        return Path.Combine(_paths.KokoroCacheDirectory(project), "previews", modelKey, speedKey);
+    }
+
+    private string VoicePreviewPath(string project, string model, decimal speed, string voice) => Path.Combine(VoicePreviewDirectory(project, model, speed), PreviewCacheKey(voice) + ".wav");
+
+    private void StartVoicePreviewWarmup()
+    {
+        if (_voiceWarmupTask is { IsCompleted: false }) return;
+        _voiceWarmupTask = WarmVoicePreviewCacheAsync();
+    }
+
+    private void StopVoicePreviewWarmup()
+    {
+        try { _voiceWarmupCancellation?.Cancel(); } catch { }
+        _voiceWarmupCancellation = null;
+    }
+
+    private async Task WarmVoicePreviewCacheAsync()
+    {
+        var project = CurrentVoiceProject();
+        var model = CurrentVoiceModel();
+        var voices = _voiceBox.Items.Cast<object>().Select(item => item.ToString()).Where(voice => !string.IsNullOrWhiteSpace(voice)).Cast<string>().ToArray();
+        if (string.IsNullOrWhiteSpace(project) || !Directory.Exists(project) || string.IsNullOrWhiteSpace(model) || voices.Length == 0)
+        {
+            Ui(() => SetVoiceCacheProgress(0, voices.Length, "等待项目目录、模型和音色列表就绪。"));
+            return;
+        }
+
+        var python = _environment.PythonExecutable(project);
+        var modelCache = Path.Combine(_paths.KokoroCacheDirectory(project), "hub", "models--" + model.Replace("/", "--", StringComparison.Ordinal));
+        var script = Path.Combine(project, "tools", "kokoro_voice_previews.py");
+        if (!File.Exists(python) || !Directory.Exists(Path.Combine(modelCache, "snapshots")) || !File.Exists(script))
+        {
+            var available = voices.Count(voice => File.Exists(VoicePreviewPath(project, model, _speedBox.Value, voice)));
+            Ui(() => SetVoiceCacheProgress(available, voices.Length, "配音环境或模型未就绪，暂时无法准备试听缓存。"));
+            return;
+        }
+
+        var speed = _speedBox.Value;
+        var cacheDirectory = VoicePreviewDirectory(project, model, speed);
+        Directory.CreateDirectory(cacheDirectory);
+        var missing = voices.Where(voice => !File.Exists(VoicePreviewPath(project, model, speed, voice))).ToArray();
+        if (missing.Length == 0)
+        {
+            Ui(() => SetVoiceCacheProgress(voices.Length, voices.Length, $"已缓存 {voices.Length}/{voices.Length} 个音色，试听文件已准备。"));
+            return;
+        }
+
+        var cancellation = new CancellationTokenSource();
+        _voiceWarmupCancellation = cancellation;
+        var generated = voices.Length - missing.Length;
+        Ui(() => SetVoiceCacheProgress(generated, voices.Length, $"正在准备试听缓存 {generated}/{voices.Length}…"));
+        try
+        {
+            var env = new Dictionary<string, string?>
+            {
+                ["HF_HOME"] = _paths.KokoroCacheDirectory(project),
+                ["HF_HUB_DISABLE_XET"] = "1",
+                ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1",
+                ["PYTHONIOENCODING"] = "utf-8",
+            };
+            var device = _deviceBox.SelectedItem?.ToString() ?? _settings.KokoroDevice;
+            await _processes.RunCheckedAsync(python,
+                [script, model, device, speed.ToString(CultureInfo.InvariantCulture), cacheDirectory, .. missing],
+                project,
+                env,
+                line =>
+                {
+                    if (!line.StartsWith("KOKORO_PREVIEW_DONE:", StringComparison.Ordinal)) return;
+                    var done = Interlocked.Increment(ref generated);
+                    Ui(() => SetVoiceCacheProgress(done, voices.Length, $"正在准备试听缓存 {done}/{voices.Length}…"));
+                },
+                cancellation.Token);
+            cancellation.Token.ThrowIfCancellationRequested();
+            Ui(() => SetVoiceCacheProgress(voices.Length, voices.Length, $"已缓存 {voices.Length}/{voices.Length} 个音色，试听文件已准备。"));
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception error)
+        {
+            Ui(() => { SetVoiceCacheProgress(Math.Max(0, Volatile.Read(ref generated)), voices.Length, "试听缓存准备失败，请重新进入设置页重试。"); AppendLog($"音色试听缓存失败：{error.Message}"); });
+        }
+        finally
+        {
+            if (ReferenceEquals(_voiceWarmupCancellation, cancellation)) _voiceWarmupCancellation = null;
+            cancellation.Dispose();
+        }
+    }
+
+    private async Task PreviewVoiceAsync()
+    {
+        var project = CurrentVoiceProject();
+        var model = CurrentVoiceModel();
+        var voices = _voiceBox.Items.Cast<object>().Select(item => item.ToString()).Where(voice => !string.IsNullOrWhiteSpace(voice)).Cast<string>().ToArray();
+        var selectedIndex = _voiceBox.SelectedIndex;
+        if (string.IsNullOrWhiteSpace(project) || !Directory.Exists(project))
+        {
+            MessageBox.Show("请先在设置中选择有效的项目目录。", "无法试听", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+        if (voices.Length == 0 || selectedIndex < 0)
+        {
+            MessageBox.Show("请先选择一个音色。", "无法试听", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        var speed = _speedBox.Value;
+        var uncachedVoices = voices.Where(voice => !File.Exists(VoicePreviewPath(project, model, speed, voice))).ToArray();
+        if (uncachedVoices.Length > 0)
+        {
+            StartVoicePreviewWarmup();
+            var warmup = _voiceWarmupTask;
+            if (warmup is not null)
+            {
+                _voiceStatusLabel!.Text = $"正在准备 {voices[selectedIndex]} 试听文件，请稍候…";
+                _previewVoiceButton!.Enabled = false;
+                await warmup;
+                _previewVoiceButton.Enabled = true;
+            }
+        }
+        var availableVoices = voices.Where(voice => File.Exists(VoicePreviewPath(project, model, speed, voice))).ToArray();
+        if (availableVoices.Length == 0)
+        {
+            MessageBox.Show("试听文件尚未准备好，请等待后台准备完成后再试听。", "无法试听", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        var cancellation = new CancellationTokenSource();
+        _previewCancellation = cancellation;
+        _previewVoiceButton!.Text = "停止试听";
+        try
+        {
+            var start = Array.FindIndex(availableVoices, voice => string.Equals(voice, voices[selectedIndex], StringComparison.OrdinalIgnoreCase));
+            if (start < 0) start = 0;
+            for (var index = Math.Max(0, start); index < availableVoices.Length; index++)
+            {
+                cancellation.Token.ThrowIfCancellationRequested();
+                var voice = availableVoices[index];
+                var audioPath = VoicePreviewPath(project, model, speed, voice);
+                SetPreviewVoiceSelection(voice);
+                _voiceStatusLabel!.Text = $"正在试听 {voice}（{index + 1}/{availableVoices.Length}）…点击停止后保留当前选择。";
+                using var player = new SoundPlayer(audioPath);
+                _previewPlayer = player;
+                await Task.Run(() =>
+                {
+                    player.Load();
+                    cancellation.Token.ThrowIfCancellationRequested();
+                    player.Play();
+                }, cancellation.Token);
+                await Task.Delay(GetWaveDuration(audioPath), cancellation.Token);
+                player.Stop();
+                _previewPlayer = null;
+                if (index + 1 < availableVoices.Length) await Task.Delay(120, cancellation.Token);
+            }
+            if (!cancellation.IsCancellationRequested) _voiceStatusLabel!.Text = "已试听完全部已缓存音色。";
+        }
+        catch (OperationCanceledException)
+        {
+            if (_voiceStatusLabel is not null) _voiceStatusLabel.Text = "试听已停止。";
+        }
+        catch (Exception) when (cancellation.IsCancellationRequested)
+        {
+            if (_voiceStatusLabel is not null) _voiceStatusLabel.Text = "试听已停止。";
+        }
+        catch (Exception error)
+        {
+            if (_voiceStatusLabel is not null) _voiceStatusLabel.Text = "试听失败。";
+            MessageBox.Show(error.Message, "音色试听失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            if (ReferenceEquals(_previewCancellation, cancellation))
+            {
+                _previewCancellation = null;
+                try { _previewPlayer?.Stop(); } catch { }
+                _previewPlayer = null;
+                _previewVoiceButton!.Text = "连续试听";
+                _previewVoiceButton.Enabled = true;
+            }
+            cancellation.Dispose();
+        }
+    }
+
+    private void SetPreviewVoiceSelection(string voice)
+    {
+        if (string.Equals(_voiceBox.SelectedItem?.ToString(), voice, StringComparison.OrdinalIgnoreCase)) return;
+        _changingVoiceForPreview = true;
+        try { _voiceBox.SelectedItem = voice; }
+        finally { _changingVoiceForPreview = false; }
+    }
+
+    private static TimeSpan GetWaveDuration(string path)
+    {
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var reader = new BinaryReader(stream);
+            if (new string(reader.ReadChars(4)) != "RIFF") return TimeSpan.FromSeconds(4);
+            reader.ReadUInt32();
+            if (new string(reader.ReadChars(4)) != "WAVE") return TimeSpan.FromSeconds(4);
+
+            ushort channels = 0;
+            uint sampleRate = 0;
+            ushort bitsPerSample = 0;
+            uint dataBytes = 0;
+            while (stream.Position + 8 <= stream.Length)
+            {
+                var chunk = new string(reader.ReadChars(4));
+                var size = reader.ReadUInt32();
+                var next = Math.Min(stream.Length, stream.Position + size + (size % 2));
+                if (chunk == "fmt " && size >= 16)
+                {
+                    reader.ReadUInt16();
+                    channels = reader.ReadUInt16();
+                    sampleRate = reader.ReadUInt32();
+                    reader.ReadUInt32();
+                    reader.ReadUInt16();
+                    bitsPerSample = reader.ReadUInt16();
+                }
+                else if (chunk == "data")
+                {
+                    dataBytes = size;
+                    break;
+                }
+                stream.Position = next;
+            }
+
+            var bytesPerSecond = sampleRate * channels * (bitsPerSample / 8d);
+            return bytesPerSecond > 0 && dataBytes > 0
+                ? TimeSpan.FromSeconds(dataBytes / bytesPerSecond)
+                : TimeSpan.FromSeconds(4);
+        }
+        catch
+        {
+            return TimeSpan.FromSeconds(4);
+        }
     }
 
     private Button NavButton(string text, int tabIndex)
@@ -395,6 +748,16 @@ public sealed class MainForm : Form
         return seconds >= 3600 ? $"{seconds / 3600:00}:{seconds % 3600 / 60:00}:{seconds % 60:00}" : $"{seconds / 60:00}:{seconds % 60:00}";
     }
 
+    private void StopVoicePreview()
+    {
+        try { _previewCancellation?.Cancel(); } catch { }
+        _previewCancellation = null;
+        try { _previewPlayer?.Stop(); } catch { }
+        _previewPlayer = null;
+        if (_previewVoiceButton is not null) { _previewVoiceButton.Enabled = true; _previewVoiceButton.Text = "连续试听"; }
+        if (_voiceStatusLabel is not null) _voiceStatusLabel.Text = "试听已停止。";
+    }
+
     private void RestartApplication()
     {
         if (_busy)
@@ -455,7 +818,7 @@ public sealed class MainForm : Form
                 _cards[index].SetEta(_nodeCompleted[index] ? "已完成" : report.FailedAt == $"节点 {index + 1}" ? "未完成" : "等待中");
             }
             _runLabel.Text = report.Status == "nodes-1-to-5-complete" ? $"最近运行已完成 · {runId}" : report.Status == "failed" ? $"最近运行失败 · {report.FailedAt}" : $"最近运行 · {runId}";
-            _overallProgress.Value = report.CompletedNodes.Count; _overallLabel.Text = $"整体进度 {report.CompletedNodes.Count}/5";
+            _overallProgress.Maximum = 5; _overallProgress.Value = Math.Clamp(report.CompletedNodes.Count, 0, 5); _overallLabel.Text = $"整体进度 {report.CompletedNodes.Count}/5";
             _overallEtaLabel.Text = report.Status == "nodes-1-to-5-complete" ? "预计剩余 已完成" : "预计剩余 正在估算…";
             if (_resumeButton is not null) _resumeButton.Enabled = report.Status != "nodes-1-to-5-complete" && report.CompletedNodes.Count < 5;
         }
@@ -519,10 +882,12 @@ public sealed class MainForm : Form
         _settings.OpenAiBaseUrl = _settingBoxes.GetValueOrDefault("baseUrl")?.Text.Trim() ?? _settings.OpenAiBaseUrl;
         _settings.OpenAiModel = _settingBoxes.GetValueOrDefault("model")?.Text.Trim() ?? _settings.OpenAiModel;
         _settings.OpenAiApiKey = _settingBoxes.GetValueOrDefault("apiKey")?.Text ?? _settings.OpenAiApiKey;
+        _settings.OpenAiBaseUrl = AppSettings.ResolveModelBaseUrl(_settings.OpenAiBaseUrl, _settings.OpenAiApiKey);
+        if (_settingBoxes.TryGetValue("baseUrl", out var baseUrlBox)) baseUrlBox.Text = _settings.OpenAiBaseUrl;
         _settings.GithubToken = _settingBoxes.GetValueOrDefault("githubToken")?.Text ?? _settings.GithubToken;
         _settings.TrendingTopN = (int)_topNBox.Value;
         _settings.KokoroModel = _settingBoxes.GetValueOrDefault("kokoroModel")?.Text.Trim() ?? _settings.KokoroModel;
-        _settings.KokoroVoice = _settingBoxes.GetValueOrDefault("voice")?.Text.Trim() ?? _settings.KokoroVoice;
+        _settings.KokoroVoice = _voiceBox.SelectedItem?.ToString() ?? _settings.KokoroVoice;
         _settings.RemotionBrowserExecutable = _settingBoxes.GetValueOrDefault("browser")?.Text.Trim() ?? _settings.RemotionBrowserExecutable;
         _settings.KokoroDevice = _deviceBox.SelectedItem?.ToString() ?? "cpu"; _settings.KokoroSpeed = _speedBox.Value;
         _cards.GetValueOrDefault(1)?.SetDescription($"获取前 {_settings.TrendingTopN} 个仓库的 GitHub API 信息和 README。");
@@ -553,6 +918,46 @@ public sealed class MainForm : Form
 
     private void AppendLog(string line) { if (string.IsNullOrWhiteSpace(line)) return; _log.AppendText($"[{DateTime.Now:HH:mm:ss}] {line}{Environment.NewLine}"); _log.SelectionStart = _log.TextLength; _log.ScrollToCaret(); }
     private void Ui(Action action) { if (IsDisposed) return; if (InvokeRequired) BeginInvoke(action); else action(); }
+
+    private sealed class VoiceCacheIndicator : Control
+    {
+        private int cached;
+        private int total;
+        private readonly ToolTip tooltip = new();
+
+        public VoiceCacheIndicator()
+        {
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
+            AccessibleRole = AccessibleRole.ProgressBar;
+            tooltip.SetToolTip(this, "音色试听缓存进度");
+        }
+
+        public void SetProgress(int completed, int count)
+        {
+            cached = Math.Max(0, completed);
+            total = Math.Max(0, count);
+            AccessibleName = total > 0 ? $"音色试听缓存 {cached}/{total}" : "音色试听缓存等待中";
+            tooltip.SetToolTip(this, AccessibleName);
+            Invalidate();
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            var bounds = new Rectangle(2, 2, Math.Max(1, ClientSize.Width - 4), Math.Max(1, ClientSize.Height - 4));
+            using var background = new SolidBrush(Color.FromArgb(226, 232, 240));
+            e.Graphics.FillEllipse(background, bounds);
+            if (total > 0 && cached > 0)
+            {
+                var sweep = 360f * Math.Clamp(cached / (float)total, 0, 1);
+                using var progress = new SolidBrush(Color.FromArgb(37, 99, 235));
+                e.Graphics.FillPie(progress, bounds, -90, sweep);
+            }
+            using var outline = new Pen(Color.FromArgb(148, 163, 184), 1f);
+            e.Graphics.DrawEllipse(outline, bounds);
+        }
+    }
 
     private sealed class NodeCard : Panel
     {

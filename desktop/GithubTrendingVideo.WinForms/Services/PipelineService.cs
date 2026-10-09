@@ -51,6 +51,7 @@ public sealed class PipelineService(RuntimePaths paths, ProcessRunner processes,
         var runDirectory = Path.Combine(outputDirectory, runId);
         Directory.CreateDirectory(runDirectory);
         var reportFile = Path.Combine(runDirectory, "run-report.json");
+        await SaveLatestRunAsync(outputDirectory, runId);
         var completed = new HashSet<string>(report.CompletedNodes, StringComparer.OrdinalIgnoreCase);
         report.CompletedNodes = Labels.Select((_, index) => $"节点 {index + 1}").Where(completed.Contains).ToList();
         await SaveReportAsync(reportFile, report, cancellationToken);
@@ -141,7 +142,7 @@ public sealed class PipelineService(RuntimePaths paths, ProcessRunner processes,
         var python = Path.Combine(projectDirectory, ".venv-kokoro", "Scripts", "python.exe");
         var env = new Dictionary<string, string?>
         {
-            ["OPENAI_BASE_URL"] = string.IsNullOrWhiteSpace(settings.OpenAiBaseUrl) ? "https://api.openai.com/v1" : settings.OpenAiBaseUrl.Trim().TrimEnd('/'),
+            ["OPENAI_BASE_URL"] = AppSettings.ResolveModelBaseUrl(settings.OpenAiBaseUrl, settings.OpenAiApiKey),
             ["OPENAI_MODEL"] = settings.OpenAiModel.Trim(),
             ["OPENAI_API_KEY"] = settings.OpenAiApiKey,
             ["GITHUB_TOKEN"] = settings.GithubToken,
@@ -159,7 +160,7 @@ public sealed class PipelineService(RuntimePaths paths, ProcessRunner processes,
         };
         var modelUri = Uri.TryCreate(env["OPENAI_BASE_URL"], UriKind.Absolute, out var parsedUri)
             ? parsedUri
-            : new Uri("https://api.openai.com/v1");
+            : new Uri("https://api.buzzai.cc/v1");
         var systemProxy = System.Net.WebRequest.DefaultWebProxy;
         if (systemProxy is not null && !systemProxy.IsBypassed(modelUri))
         {
@@ -198,5 +199,11 @@ public sealed class PipelineService(RuntimePaths paths, ProcessRunner processes,
         var json = JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true });
         await File.WriteAllTextAsync(temp, json, cancellationToken);
         File.Move(temp, path, true);
+    }
+
+    private static Task SaveLatestRunAsync(string outputDirectory, string runId)
+    {
+        var path = Path.Combine(outputDirectory, "latest-run.json");
+        return File.WriteAllTextAsync(path, JsonSerializer.Serialize(new { runId }), CancellationToken.None);
     }
 }

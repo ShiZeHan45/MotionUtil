@@ -4,6 +4,7 @@ import { repoSlug } from "../lib/paths";
 import { writeJson } from "../lib/io";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { isBadgeAsset } from "../lib/visual-assets";
 
 const API = "https://api.github.com";
 const API_VERSION = "2022-11-28";
@@ -65,7 +66,8 @@ function readmeImages(markdown: string, readmeUrl: string): ReadmeImage[] {
       const sourceUrl = new URL(trimmed, readmeUrl).toString();
       if (!/^https?:\/\//iu.test(sourceUrl) || seen.has(sourceUrl)) return;
       seen.add(sourceUrl);
-      results.push({ sourceUrl, label: label.trim() || `README 图片 ${results.length + 1}` });
+      const image = { sourceUrl, label: label.trim() || `README 图片 ${results.length + 1}` };
+      if (!isBadgeAsset(image)) results.push(image);
     } catch {
       // Ignore malformed README links and preserve the rest of the repository facts.
     }

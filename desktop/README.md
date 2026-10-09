@@ -8,7 +8,7 @@
 - 每个节点显示等待中、运行中、已完成或失败；可以从失败节点继续，也可以单独重试节点。
 - 运行日志实时接收 Node.js/Python/Remotion 的标准输出和错误输出。
 - 环境页检查 Node.js、项目依赖、Python/Kokoro、语音模型和 Remotion Headless Chrome，并提供下载、安装、重试按钮。
-- 设置页覆盖模型服务、API Key、GitHub Token、Kokoro 音色/设备/语速、浏览器路径和输出目录。
+- 设置页覆盖模型服务、API Key、GitHub Token、节点 2 周榜项目数量、Kokoro 音色/设备/语速、浏览器路径和输出目录。
 - API Key 与 GitHub Token 使用 Windows 当前用户 DPAPI 加密保存于 `%LOCALAPPDATA%\GitHubTrendingVideo\settings.json`。
 
 ## 开发构建
@@ -24,13 +24,14 @@ dotnet build .\desktop\GithubTrendingVideo.WinForms\GithubTrendingVideo.WinForms
 发布成不依赖目标电脑 .NET 安装的单文件 Windows x64 程序：
 
 ```powershell
-dotnet publish .\desktop\GithubTrendingVideo.WinForms\GithubTrendingVideo.WinForms.csproj `
-  -c Release -r win-x64 --self-contained true `
-  -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
-  -o .\desktop\publish
+& .\desktop\publish.ps1
 ```
 
 当前工作区已经生成可直接运行的发布文件：`desktop\\publish\\GitHubTrendingVideo.exe`（Windows x64，自包含）。
+
+发布脚本始终更新 `desktop\publish`，这是唯一启动入口；不要新增其他 `publish-*` 目录。模型服务默认为 `https://api.buzzai.cc/v1`，使用 `sk-buzz-` 密钥时会自动纠正旧设置中的其他服务地址。密钥仍由 Windows DPAPI 加密保存，配音默认语速为 1.0。
+
+节点 3 会在日志中显示实际服务地址与模型名称，流式接收讲稿并每 15 秒显示等待或接收进度。网络中断、429 和临时网关错误最多请求三次；格式不合要求时向同一模型修复一次。完成一个项目就保存讲稿及缓存，失败后从节点 3 继续即可复用已经完成的项目。
 
 启动后在“设置”里选择根项目目录（例如 `E:\AI\github-trending-video`）。首次使用进入“环境与下载”，按顺序安装 Node.js、项目组件、Kokoro 配音环境、语音模型和 Remotion 浏览器。所有安装操作都由软件启动，日志会显示进度和失败原因。
 

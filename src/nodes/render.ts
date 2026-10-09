@@ -7,6 +7,7 @@ import { config } from "../lib/config";
 import { repoSlug } from "../lib/paths";
 import { writeJson } from "../lib/io";
 import { durationInFrames, FPS, type VideoProps } from "../video/ProjectVideo";
+import { isBadgeAsset } from "../lib/visual-assets";
 
 function outputName(project: RenderProject): string {
   return `rank-${String(project.rank).padStart(2, "0")}-${repoSlug(project.repo)}.mp4`;
@@ -25,6 +26,10 @@ async function stageAssets(project: RenderProject, runId: string): Promise<Rende
   }
   const visualAssets: NonNullable<RenderProject["visualAssets"]> = [];
   for (const asset of project.visualAssets ?? []) {
+    if (isBadgeAsset(asset)) {
+      console.log(`[节点 5] 跳过徽标：${project.repo} / ${asset.label}`);
+      continue;
+    }
     const filename = path.basename(asset.path);
     const destination = path.join(assetRoot, filename);
     await copyFile(path.resolve(asset.path), destination);

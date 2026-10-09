@@ -48,7 +48,7 @@ export function parseTrendingHtml(html: string, sourceUrl: string, capturedAt = 
       starsThisWeek: countFromText(starsThisWeekText),
     });
   }
-  if (repos.length < 5) throw new Error(`GitHub Trending 解析结果只有 ${repos.length} 个仓库（至少需要 5 个），停止处理。`);
+  if (repos.length < config.githubTopN) throw new Error(`GitHub Trending 解析结果只有 ${repos.length} 个仓库（配置需要前 ${config.githubTopN} 个），停止处理。`);
   return { capturedAt, period: "weekly", sourceUrl, repos };
 }
 

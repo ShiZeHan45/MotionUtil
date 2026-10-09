@@ -14,7 +14,7 @@ public sealed class SettingsStore(RuntimePaths paths)
     {
         public string ProjectDirectory { get; set; } = "";
         public string OutputDirectory { get; set; } = "";
-        public string OpenAiBaseUrl { get; set; } = "https://api.openai.com/v1";
+        public string OpenAiBaseUrl { get; set; } = AppSettings.BuzzBaseUrl;
         public string OpenAiModel { get; set; } = "";
         public string OpenAiApiKey { get; set; } = "";
         public string GithubToken { get; set; } = "";
@@ -22,7 +22,7 @@ public sealed class SettingsStore(RuntimePaths paths)
         public string KokoroModel { get; set; } = "hexgrad/Kokoro-82M-v1.1-zh";
         public string KokoroVoice { get; set; } = "zf_001";
         public string KokoroDevice { get; set; } = "cpu";
-        public decimal KokoroSpeed { get; set; } = 1.3m;
+        public decimal KokoroSpeed { get; set; } = 1.0m;
         public string RemotionBrowserExecutable { get; set; } = "";
     }
 
@@ -32,21 +32,28 @@ public sealed class SettingsStore(RuntimePaths paths)
         {
             if (!File.Exists(paths.SettingsFile)) return new AppSettings();
             var stored = JsonSerializer.Deserialize<StoredSettings>(File.ReadAllText(paths.SettingsFile), JsonOptions) ?? new StoredSettings();
-            return new AppSettings
+            var apiKey = TryUnprotect(stored.OpenAiApiKey);
+            var settings = new AppSettings
             {
                 ProjectDirectory = stored.ProjectDirectory,
                 OutputDirectory = stored.OutputDirectory,
-                OpenAiBaseUrl = stored.OpenAiBaseUrl,
+                OpenAiBaseUrl = AppSettings.ResolveModelBaseUrl(stored.OpenAiBaseUrl, apiKey),
                 OpenAiModel = stored.OpenAiModel,
-                OpenAiApiKey = Unprotect(stored.OpenAiApiKey),
-                GithubToken = Unprotect(stored.GithubToken),
+                OpenAiApiKey = apiKey,
+                GithubToken = TryUnprotect(stored.GithubToken),
                 TrendingTopN = Math.Clamp(stored.TrendingTopN, 1, 20),
                 KokoroModel = stored.KokoroModel,
                 KokoroVoice = stored.KokoroVoice,
                 KokoroDevice = stored.KokoroDevice,
-                KokoroSpeed = stored.KokoroSpeed,
+                KokoroSpeed = stored.KokoroSpeed > 0 ? stored.KokoroSpeed : 1.0m,
                 RemotionBrowserExecutable = stored.RemotionBrowserExecutable,
             };
+            if (!string.Equals(stored.OpenAiBaseUrl, settings.OpenAiBaseUrl, StringComparison.Ordinal))
+            {
+                stored.OpenAiBaseUrl = settings.OpenAiBaseUrl;
+                SaveStoredSettings(stored);
+            }
+            return settings;
         }
         catch (Exception error)
         {
@@ -56,12 +63,11 @@ public sealed class SettingsStore(RuntimePaths paths)
 
     public void Save(AppSettings settings)
     {
-        Directory.CreateDirectory(paths.AppDataRoot);
         var stored = new StoredSettings
         {
             ProjectDirectory = settings.ProjectDirectory,
             OutputDirectory = settings.OutputDirectory,
-            OpenAiBaseUrl = settings.OpenAiBaseUrl.Trim().TrimEnd('/'),
+            OpenAiBaseUrl = AppSettings.ResolveModelBaseUrl(settings.OpenAiBaseUrl, settings.OpenAiApiKey),
             OpenAiModel = settings.OpenAiModel.Trim(),
             OpenAiApiKey = Protect(settings.OpenAiApiKey),
             GithubToken = Protect(settings.GithubToken),
@@ -72,13 +78,25 @@ public sealed class SettingsStore(RuntimePaths paths)
             KokoroSpeed = settings.KokoroSpeed,
             RemotionBrowserExecutable = settings.RemotionBrowserExecutable.Trim(),
         };
+        SaveStoredSettings(stored);
+    }
+
+    private void SaveStoredSettings(StoredSettings stored)
+    {
+        Directory.CreateDirectory(paths.AppDataRoot);
         var temp = paths.SettingsFile + ".tmp";
         File.WriteAllText(temp, JsonSerializer.Serialize(stored, JsonOptions), new UTF8Encoding(false));
         File.Move(temp, paths.SettingsFile, true);
     }
 
     private static string Protect(string value) => string.IsNullOrEmpty(value) ? "" : Convert.ToBase64String(Dpapi.Protect(Encoding.UTF8.GetBytes(value)));
-    private static string Unprotect(string value) => string.IsNullOrEmpty(value) ? "" : Encoding.UTF8.GetString(Dpapi.Unprotect(Convert.FromBase64String(value)));
+    private static string TryUnprotect(string value)
+    {
+        if (string.IsNullOrEmpty(value)) return "";
+        try { return Encoding.UTF8.GetString(Dpapi.Unprotect(Convert.FromBase64String(value))); }
+        catch (CryptographicException) { return ""; }
+        catch (FormatException) { return ""; }
+    }
 
     private static class Dpapi
     {
