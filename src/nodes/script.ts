@@ -58,6 +58,14 @@ const responseSchema = z.object({
     sources: z.array(z.string().url()).min(1),
   })),
 });
+const durationRevisionSchema = z.object({
+  narrationSegments: z.array(z.object({
+    scene: z.enum(["intro", "problem", "concept", "case", "dashboard", "setup", "workflow", "requirements", "summary"]),
+    text: z.string().min(2).max(500),
+    spokenText: z.string().min(2).max(500).optional(),
+  })).length(9),
+  conceptStoryboard: conceptStoryboardSchema,
+});
 
 function cacheKey(facts: RepoFacts): string {
   const compact = {
@@ -247,6 +255,48 @@ async function generateBatch(facts: RepoFacts[]): Promise<ProjectScript[]> {
       throw new Error(`${facts.map((item) => item.fullName).join("、")} 讲稿修复后仍不符合要求：${reason}`);
     }
   }
+}
+
+/** Ask the model to shorten only the spoken timeline while preserving facts and the drawing graph. */
+export async function shortenScriptForDuration(script: ProjectScript, durationMs: number, maxDurationMs: number): Promise<ProjectScript> {
+  const targetSeconds = Math.max(150, Math.floor(maxDurationMs / 1_000) - 5);
+  const messages: ChatMessage[] = [
+    {
+      role: "system",
+      content: [
+        "你是中文技术视频的时长编辑。只输出 JSON，不要 Markdown 或解释。",
+        "把一份已经通过事实、结构和原理故事板验收的讲稿压缩到指定时长。只压缩 narrationSegments 的口播文字，以及 conceptStoryboard.beats 的 text 和 spokenText；不要改变项目名、名次、事实、来源、场景顺序、beat id、对象、连线、动作或 voiceShare。",
+        "不得删除九段 narrationSegments 或 conceptStoryboard 的 beat；每段仍要完整表达本段核心意思，不能用省略号、列表符号或舞台指令。不要添加背景、图片或装饰。",
+        `目标总时长约 ${targetSeconds} 秒，当前实测 ${Math.round(durationMs / 100) / 10} 秒，最多保留 205 秒。输出格式必须是 {\"narrationSegments\":[...],\"conceptStoryboard\":{...}}。`,
+      ].join("\n"),
+    },
+    { role: "user", content: JSON.stringify({ script }) },
+  ];
+  let content = await requestChatCompletion(messages);
+  let revision: z.infer<typeof durationRevisionSchema>;
+  try {
+    revision = durationRevisionSchema.parse(safeJson(content));
+  } catch (error) {
+    const detail = error instanceof z.ZodError
+      ? error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("；")
+      : error instanceof Error ? error.message : String(error);
+    content = await requestChatCompletion([
+      ...messages,
+      { role: "assistant", content },
+      { role: "user", content: `只修复 JSON 结构错误：${detail}。仍然只输出 narrationSegments 和 conceptStoryboard 的完整 JSON。` },
+    ]);
+    revision = durationRevisionSchema.parse(safeJson(content));
+  }
+  const scenes = revision.narrationSegments.map((segment) => segment.scene);
+  const expectedScenes = script.narrationSegments.map((segment) => segment.scene);
+  if (scenes.some((scene, index) => scene !== expectedScenes[index])) throw new Error(`${script.repo} 时长修订改变了九段场景顺序`);
+  const expectedBeats = script.conceptStoryboard?.beats ?? [];
+  if (revision.conceptStoryboard.beats.length !== expectedBeats.length || revision.conceptStoryboard.beats.some((beat, index) => beat.id !== expectedBeats[index]?.id)) {
+    throw new Error(`${script.repo} 时长修订改变了原理 beat 结构`);
+  }
+  const issues = validateStoryboardLayout(revision.conceptStoryboard);
+  if (issues.length) throw new Error(`${script.repo} 时长修订后的故事板验收失败：${issues.map((issue) => issue.message).join("；")}`);
+  return { ...script, narrationSegments: revision.narrationSegments, conceptStoryboard: revision.conceptStoryboard };
 }
 
 export async function generateScripts(facts: RepoFacts[], outputDirectory: string): Promise<ProjectScript[]> {

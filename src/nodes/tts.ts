@@ -4,6 +4,8 @@ import path from "node:path";
 import type { NarrationSegment, ProjectScript, RenderProject } from "../types";
 import { config } from "../lib/config";
 import { writeJson } from "../lib/io";
+import { repoSlug } from "../lib/paths";
+import { shortenScriptForDuration } from "./script";
 
 type WavInfo = { durationMs: number; sampleRate: number; channels: number; byteRate: number };
 type ScriptWithSpokenText = Omit<ProjectScript, "narrationSegments"> & {
@@ -15,6 +17,7 @@ const RESULT_PREFIX = "KOKORO_RESULT:";
 // The prompt targets 2:40-3:20; this guard leaves a small extra buffer so a
 // few seconds of pauses do not block an otherwise usable video.
 const MAX_VIDEO_DURATION_MS = 210_000;
+const MAX_AUTO_REVISIONS = 3;
 
 function expandBeatNarration(script: ProjectScript): Array<NarrationSegment & { spokenText: string }> {
   return script.narrationSegments.flatMap((segment) => {
@@ -117,6 +120,48 @@ function runKokoro(scripts: ScriptWithSpokenText[], audioDirectory: string, spee
   });
 }
 
+function prepareScripts(scripts: ProjectScript[], substitutions: Array<[string, string]>): ScriptWithSpokenText[] {
+  return scripts.map((script) => ({
+    ...script,
+    narrationSegments: expandBeatNarration(script).map((segment) => {
+      let spokenText = segment.spokenText ?? segment.text;
+      for (const [source, replacement] of substitutions) spokenText = spokenText.replace(new RegExp(escapeRegExp(source), "gi"), replacement);
+      return { ...segment, spokenText };
+    }),
+  }));
+}
+
+async function inspectProjects(projects: RenderProject[], scripts: ProjectScript[]): Promise<Map<string, number>> {
+  const durations = new Map<string, number>();
+  for (const [projectIndex, project] of projects.entries()) {
+    const source = scripts.find((script) => script.repo.toLowerCase() === project.repo.toLowerCase());
+    if (!source) throw new Error(`Kokoro 返回未请求的项目：${project.repo}`);
+    const expectedSegments = source.narrationSegments.reduce((total, segment) => total + (segment.scene === "concept" && source.conceptStoryboard?.beats.length ? source.conceptStoryboard.beats.length : 1), 0);
+    if (project.narrationSegments.length !== expectedSegments) {
+      throw new Error(`Kokoro 返回 ${project.repo} 的节拍数错误：预期 ${expectedSegments}，实际 ${project.narrationSegments.length}`);
+    }
+    console.log(`[节点 4] ${projectIndex + 1}/${projects.length} 检查 ${project.repo}`);
+    for (const segment of project.narrationSegments) {
+      const info = inspectPcmWav(await readFile(segment.audio), segment.audio);
+      if (info.sampleRate !== 24_000 || info.channels !== 1) {
+        throw new Error(`Kokoro WAV 格式不符：${segment.audio}（${info.sampleRate} Hz，${info.channels} 声道）`);
+      }
+      segment.durationMs = info.durationMs;
+      console.log(`  ${segment.scene}: ${(info.durationMs / 1_000).toFixed(1)} 秒`);
+    }
+    const totalDurationMs = project.narrationSegments.reduce((total, segment) => total + segment.durationMs, 0);
+    durations.set(project.repo.toLowerCase(), totalDurationMs);
+    console.log(`  合计：${(totalDurationMs / 1_000).toFixed(1)} 秒`);
+  }
+  return durations;
+}
+
+async function persistAdjustedScripts(scripts: ProjectScript[], audioDirectory: string): Promise<void> {
+  const scriptsDirectory = path.join(path.dirname(audioDirectory), "scripts");
+  await writeJson(path.join(scriptsDirectory, "index.json"), scripts);
+  await Promise.all(scripts.map((script) => writeJson(path.join(scriptsDirectory, `${repoSlug(script.repo)}.json`), script)));
+}
+
 export async function synthesizeScripts(scripts: ProjectScript[], audioDirectory: string): Promise<RenderProject[]> {
   if (!Number.isFinite(config.kokoroSpeed) || config.kokoroSpeed <= 0) throw new Error("KOKORO_SPEED 必须是大于 0 的数字");
   if (!Number.isFinite(config.kokoroPauseMs) || config.kokoroPauseMs < 0) throw new Error("KOKORO_PAUSE_MS 必须是非负数字");
@@ -129,44 +174,42 @@ export async function synthesizeScripts(scripts: ProjectScript[], audioDirectory
     if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error;
   }
   const substitutions = Object.entries(pronunciation).sort(([a], [b]) => b.length - a.length);
-  const prepared: ScriptWithSpokenText[] = scripts.map((script) => ({
-    ...script,
-    narrationSegments: expandBeatNarration(script).map((segment) => {
-      let spokenText = segment.spokenText ?? segment.text;
-      for (const [source, replacement] of substitutions) spokenText = spokenText.replace(new RegExp(escapeRegExp(source), "gi"), replacement);
-      return { ...segment, spokenText };
-    }),
-  }));
-
   console.log(`[节点 4] 使用 Kokoro ${config.kokoroModel}，音色 ${config.kokoroVoice}，设备 ${config.kokoroDevice}，语速 ${config.kokoroSpeed}`);
-  let projects = await runKokoro(prepared, audioDirectory, config.kokoroSpeed);
+  let workingScripts = scripts.map((script) => ({ ...script }));
+  const durationAdjustments: Array<{ repo: string; revision: number; beforeMs: number }> = [];
+  let projects = await runKokoro(prepareScripts(workingScripts, substitutions), audioDirectory, config.kokoroSpeed);
   if (projects.length !== scripts.length) throw new Error(`Kokoro 返回项目数量错误：请求 ${scripts.length} 个，返回 ${projects.length} 个`);
 
-  const durationMs = (project: RenderProject) => project.narrationSegments.reduce((total, segment) => total + segment.durationMs, 0);
-
-  for (const [projectIndex, project] of projects.entries()) {
-    const source = scripts[projectIndex];
-    if (!source || project.repo.toLowerCase() !== source.repo.toLowerCase()) {
-      throw new Error(`Kokoro 返回顺序或仓库不匹配：${project.repo}`);
-    }
-    const expectedSegments = source.narrationSegments.reduce((total, segment) => total + (segment.scene === "concept" && source.conceptStoryboard?.beats.length ? source.conceptStoryboard.beats.length : 1), 0);
-    if (project.narrationSegments.length !== expectedSegments) {
-      throw new Error(`Kokoro 返回 ${project.repo} 的节拍数错误：预期 ${expectedSegments}，实际 ${project.narrationSegments.length}`);
-    }
-    console.log(`[节点 4] ${projectIndex + 1}/${projects.length} ${project.repo}`);
-    for (const segment of project.narrationSegments) {
-      const info = inspectPcmWav(await readFile(segment.audio), segment.audio);
-      if (info.sampleRate !== 24_000 || info.channels !== 1) {
-        throw new Error(`Kokoro WAV 格式不符：${segment.audio}（${info.sampleRate} Hz，${info.channels} 声道）`);
+  for (let revision = 0; revision <= MAX_AUTO_REVISIONS; revision++) {
+    const durations = await inspectProjects(projects, workingScripts);
+    const overlong = workingScripts.filter((script) => (durations.get(script.repo.toLowerCase()) ?? 0) > MAX_VIDEO_DURATION_MS);
+    if (!overlong.length) {
+      for (const script of workingScripts) {
+        const total = durations.get(script.repo.toLowerCase()) ?? 0;
+        console.log(`  ${script.repo} 合计：${(total / 1_000).toFixed(1)} 秒（目标约 3 分钟，通常 2 分 40 秒至 3 分 20 秒）`);
       }
-      segment.durationMs = info.durationMs;
-      console.log(`  ${segment.scene}: ${(info.durationMs / 1_000).toFixed(1)} 秒`);
+      scripts = workingScripts;
+      break;
     }
-    const totalDurationMs = durationMs(project);
-    if (totalDurationMs > MAX_VIDEO_DURATION_MS) {
-      throw new Error(`${project.repo} 配音总时长为 ${(totalDurationMs / 1_000).toFixed(1)} 秒，超过 3 分 30 秒上限；请缩短节点 3 的讲稿后重试。`);
+    if (revision === MAX_AUTO_REVISIONS) {
+      const details = overlong.map((script) => `${script.repo} ${(durations.get(script.repo.toLowerCase())! / 1_000).toFixed(1)} 秒`).join("、");
+      await writeJson(path.join(audioDirectory, "duration-adjustments.json"), { maxRevisions: MAX_AUTO_REVISIONS, maxDurationMs: MAX_VIDEO_DURATION_MS, adjustments: durationAdjustments, status: "failed", remaining: details });
+      throw new Error(`自动压缩讲稿 ${MAX_AUTO_REVISIONS} 轮后仍超过 3 分 30 秒：${details}。请在节点 3 修改讲稿后重试。`);
     }
-    console.log(`  合计：${(totalDurationMs / 1_000).toFixed(1)} 秒（目标约 3 分钟，通常 2 分 40 秒至 3 分 20 秒）`);
+    console.log(`[节点 4] 发现 ${overlong.length} 个项目超过 3 分 30 秒，反馈节点 3 自动压缩讲稿（第 ${revision + 1}/${MAX_AUTO_REVISIONS} 轮）`);
+    const revisedByRepo = new Map<string, ProjectScript>();
+    for (const script of overlong) {
+      const duration = durations.get(script.repo.toLowerCase())!;
+      durationAdjustments.push({ repo: script.repo, revision: revision + 1, beforeMs: duration });
+      revisedByRepo.set(script.repo.toLowerCase(), await shortenScriptForDuration(script, duration, MAX_VIDEO_DURATION_MS));
+    }
+    workingScripts = workingScripts.map((script) => revisedByRepo.get(script.repo.toLowerCase()) ?? script);
+    await persistAdjustedScripts(workingScripts, audioDirectory);
+    const retryScripts = workingScripts.filter((script) => revisedByRepo.has(script.repo.toLowerCase()));
+    const retryProjects = await runKokoro(prepareScripts(retryScripts, substitutions), audioDirectory, config.kokoroSpeed);
+    const byRepo = new Map(projects.map((project) => [project.repo.toLowerCase(), project]));
+    for (const project of retryProjects) byRepo.set(project.repo.toLowerCase(), project);
+    projects = workingScripts.map((script) => byRepo.get(script.repo.toLowerCase())).filter((project): project is RenderProject => Boolean(project));
   }
 
   await writeJson(path.join(audioDirectory, "index.json"), projects.map((project) => ({
@@ -175,5 +218,6 @@ export async function synthesizeScripts(scripts: ProjectScript[], audioDirectory
     segments: project.narrationSegments.map(({ scene, audio, durationMs }) => ({ scene, audio, durationMs })),
   })));
   await writeJson(path.join(audioDirectory, "render-projects.json"), projects);
+  await writeJson(path.join(audioDirectory, "duration-adjustments.json"), { maxRevisions: MAX_AUTO_REVISIONS, maxDurationMs: MAX_VIDEO_DURATION_MS, adjustments: durationAdjustments, status: "passed" });
   return projects;
 }

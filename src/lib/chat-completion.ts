@@ -97,8 +97,10 @@ async function readCompletion(response: Response, onContent: (length: number) =>
 export async function requestChatCompletion(messages: ChatMessage[]): Promise<string> {
   const service = config.openAiBaseUrl;
   const serviceHost = new URL(service).hostname;
-  // Retry is user-driven from the desktop app so VPN drops don't hold the pipeline in a retry loop.
-  const attempts = 1;
+  // A VPN can briefly drop the connection. Keep the retry loop bounded while
+  // giving transient network failures five chances to recover automatically.
+  const maxRetries = 5;
+  const attempts = maxRetries + 1;
   for (let attempt = 1; attempt <= attempts; attempt++) {
     const started = Date.now();
     let received = 0;
@@ -144,9 +146,12 @@ export async function requestChatCompletion(messages: ChatMessage[]): Promise<st
     } finally {
       clearInterval(heartbeat);
     }
-    if (!failure.retryable || attempt === attempts) throw new Error(`节点 3 讲稿请求失败（模型 ${config.openAiModel}）：${failure.message}。已生成项目的缓存已保留，可从节点 3 继续。`);
+    if (!failure.retryable || attempt === attempts) {
+      const retrySummary = failure.retryable ? `网络重试 ${maxRetries} 次后仍失败` : "非网络错误，未重试";
+      throw new Error(`节点 3 讲稿请求失败（模型 ${config.openAiModel}）：${failure.message}。${retrySummary}。已生成项目的缓存已保留，可从节点 3 继续。`);
+    }
     const delayMs = Math.max(attempt * 2_000, failure.retryAfterMs);
-    console.log(`[节点 3] ${failure.message}；${delayMs / 1_000} 秒后进行第 ${attempt + 1} 次请求（最多 ${attempts} 次），继续使用 ${service}`);
+    console.log(`[节点 3] 网络波动，正在重试（第 ${attempt}/${maxRetries} 次）`);
     await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
   throw new Error("讲稿模型请求未完成");
