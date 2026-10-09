@@ -11,7 +11,10 @@ type ScriptWithSpokenText = Omit<ProjectScript, "narrationSegments"> & {
 };
 type KokoroOutput = { projects: RenderProject[] };
 const RESULT_PREFIX = "KOKORO_RESULT:";
-const MAX_VIDEO_DURATION_MS = 180_000;
+// Keep three minutes as the target while allowing normal TTS timing variation.
+// The prompt targets 2:40-3:20; this guard leaves a small extra buffer so a
+// few seconds of pauses do not block an otherwise usable video.
+const MAX_VIDEO_DURATION_MS = 210_000;
 
 function expandBeatNarration(script: ProjectScript): Array<NarrationSegment & { spokenText: string }> {
   return script.narrationSegments.flatMap((segment) => {
@@ -161,9 +164,9 @@ export async function synthesizeScripts(scripts: ProjectScript[], audioDirectory
     }
     const totalDurationMs = durationMs(project);
     if (totalDurationMs > MAX_VIDEO_DURATION_MS) {
-      throw new Error(`${project.repo} 配音总时长为 ${(totalDurationMs / 1_000).toFixed(1)} 秒，超过 3 分钟上限；请缩短节点 3 的讲稿后重试。`);
+      throw new Error(`${project.repo} 配音总时长为 ${(totalDurationMs / 1_000).toFixed(1)} 秒，超过 3 分 30 秒上限；请缩短节点 3 的讲稿后重试。`);
     }
-    console.log(`  合计：${(totalDurationMs / 1_000).toFixed(1)} 秒（3 分钟以内）`);
+    console.log(`  合计：${(totalDurationMs / 1_000).toFixed(1)} 秒（目标约 3 分钟，通常 2 分 40 秒至 3 分 20 秒）`);
   }
 
   await writeJson(path.join(audioDirectory, "index.json"), projects.map((project) => ({

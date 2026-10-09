@@ -809,18 +809,26 @@ public sealed class MainForm : Form
             _nodeDurationsSeconds.Clear();
             foreach (var (label, seconds) in report.NodeDurationsSeconds ?? [])
                 if (label.StartsWith("节点 ") && int.TryParse(label[3..], out var node) && node is >= 1 and <= 5) _nodeDurationsSeconds[node - 1] = Math.Max(0.1, seconds);
-            _completedNodeCount = report.CompletedNodes.Count;
+            var failed = report.FailedAt is not null && int.TryParse(report.FailedAt.Replace("节点 ", "", StringComparison.Ordinal), out var failedNode)
+                ? failedNode - 1
+                : -1;
+            _completedNodeCount = failed >= 0
+                ? report.CompletedNodes.Count(label => int.TryParse(label.Replace("节点 ", "", StringComparison.Ordinal), out var node) && node - 1 < failed)
+                : report.CompletedNodes.Count;
             _activeNodeIndex = -1;
             for (var index = 0; index < 5; index++)
             {
-                _nodeCompleted[index] = report.CompletedNodes.Contains($"节点 {index + 1}");
-                _cards[index].SetState(_nodeCompleted[index] ? "已完成" : report.FailedAt == $"节点 {index + 1}" ? "失败" : "等待中", _nodeCompleted[index] ? 100 : 0);
-                _cards[index].SetEta(_nodeCompleted[index] ? "已完成" : report.FailedAt == $"节点 {index + 1}" ? "未完成" : "等待中");
+                _nodeCompleted[index] = failed >= 0
+                    ? index < failed && report.CompletedNodes.Contains($"节点 {index + 1}")
+                    : report.CompletedNodes.Contains($"节点 {index + 1}");
+                var isFailed = failed == index;
+                _cards[index].SetState(_nodeCompleted[index] ? "已完成" : isFailed ? "失败" : "等待中", _nodeCompleted[index] ? 100 : 0);
+                _cards[index].SetEta(_nodeCompleted[index] ? "已完成" : isFailed ? "未完成" : "等待中");
             }
             _runLabel.Text = report.Status == "nodes-1-to-5-complete" ? $"最近运行已完成 · {runId}" : report.Status == "failed" ? $"最近运行失败 · {report.FailedAt}" : $"最近运行 · {runId}";
-            _overallProgress.Maximum = 5; _overallProgress.Value = Math.Clamp(report.CompletedNodes.Count, 0, 5); _overallLabel.Text = $"整体进度 {report.CompletedNodes.Count}/5";
+            _overallProgress.Maximum = 5; _overallProgress.Value = Math.Clamp(_completedNodeCount, 0, 5); _overallLabel.Text = $"整体进度 {_completedNodeCount}/5";
             _overallEtaLabel.Text = report.Status == "nodes-1-to-5-complete" ? "预计剩余 已完成" : "预计剩余 正在估算…";
-            if (_resumeButton is not null) _resumeButton.Enabled = report.Status != "nodes-1-to-5-complete" && report.CompletedNodes.Count < 5;
+            if (_resumeButton is not null) _resumeButton.Enabled = (report.Status == "failed" && report.FailedAt is not null) || (report.Status != "nodes-1-to-5-complete" && report.CompletedNodes.Count < 5);
         }
         catch { }
     }

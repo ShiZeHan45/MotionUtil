@@ -90,6 +90,24 @@ export function LayoutGuard({ children }: { children: React.ReactNode }) {
         }
       }
     }
+    const cards = [...ref.current.querySelectorAll<HTMLElement>("[data-concept-card]")]
+      .filter((element) => element.getBoundingClientRect().width > 0 && getComputedStyle(element).opacity !== "0");
+    for (let index = 0; index < cards.length; index++) {
+      const left = cards[index]!.getBoundingClientRect();
+      for (let other = index + 1; other < cards.length; other++) {
+        const right = cards[other]!.getBoundingClientRect();
+        if (left.left < right.right - 2 && left.right > right.left + 2 && left.top < right.bottom - 2 && left.bottom > right.top + 2) {
+          cancelRender(new Error(`原理布局失败：卡片 ${cards[index]!.dataset.conceptCard} 与 ${cards[other]!.dataset.conceptCard} 重叠，帧 ${frame}`));
+          return;
+        }
+      }
+    }
+    for (const connector of ref.current.querySelectorAll<HTMLElement>("[data-concept-connector]")) {
+      if (connector.getBoundingClientRect().width < 12) {
+        cancelRender(new Error(`原理布局失败：连线 ${connector.dataset.conceptConnector} 长度不足，帧 ${frame}`));
+        return;
+      }
+    }
   });
   return <div ref={ref} style={{ position: "absolute", inset: 0 }}>{children}</div>;
 }

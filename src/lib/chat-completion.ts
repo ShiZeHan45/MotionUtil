@@ -2,7 +2,7 @@ import { config } from "./config";
 
 export type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 type CompletionChunk = {
-  error?: { message?: string };
+  error?: string | { message?: string; code?: string; type?: string };
   choices?: Array<{
     delta?: { content?: string | null };
     message?: { content?: string | null };
@@ -20,11 +20,25 @@ function safeMessage(message: string): string {
   return (config.openAiApiKey ? message.replaceAll(config.openAiApiKey, "[API Key]") : message).slice(0, 500);
 }
 
+function getErrorMessage(error: CompletionChunk["error"]): string {
+  if (typeof error === "string") return error;
+  return error?.message ?? error?.code ?? "模型返回错误";
+}
+
+function isRetryableStreamError(message: string): boolean {
+  return /unable to forward upstream stream/i.test(message)
+    || /\b(?:temporarily unavailable|try again later|timeout|timed out|overloaded|too many requests|rate.?limit|internal server error|bad gateway|gateway timeout|service unavailable|connection reset|connection closed|econnreset|eai_again)\b/i.test(message)
+    || /\bupstream\b.{0,80}\b(?:error|failed|failure|unavailable|timeout|timed out|closed|reset)\b/i.test(message);
+}
+
 async function readCompletion(response: Response, onContent: (length: number) => void): Promise<string> {
   if (!(response.headers.get("content-type") ?? "").includes("text/event-stream")) {
-    // Some compatible services accept stream=true but still return a JSON body.
+    // Compatible services may return a JSON body regardless of the stream setting.
     const body = await response.json() as CompletionChunk;
-    if (body.error) throw new ModelRequestError(safeMessage(body.error.message ?? "模型返回错误"), false);
+    if (body.error) {
+      const message = getErrorMessage(body.error);
+      throw new ModelRequestError(safeMessage(message), isRetryableStreamError(message));
+    }
     if (body.choices?.[0]?.finish_reason === "length") throw new ModelRequestError("模型输出被长度限制截断，未生成完整讲稿", false);
     const content = body.choices?.[0]?.message?.content;
     if (!content) throw new ModelRequestError("讲稿模型返回为空", true);
@@ -46,7 +60,11 @@ async function readCompletion(response: Response, onContent: (length: number) =>
     if (!data) return;
     if (data === "[DONE]") { complete = true; return; }
     const chunk = JSON.parse(data) as CompletionChunk;
-    if (chunk.error) throw new ModelRequestError(safeMessage(chunk.error.message ?? "模型返回错误"), false);
+    if (chunk.error) {
+      const message = getErrorMessage(chunk.error);
+      const retryable = isRetryableStreamError(message);
+      throw new ModelRequestError(safeMessage(message), retryable);
+    }
     const choice = chunk.choices?.[0];
     if (choice?.delta?.content) {
       content += choice.delta.content;
@@ -79,7 +97,8 @@ async function readCompletion(response: Response, onContent: (length: number) =>
 export async function requestChatCompletion(messages: ChatMessage[]): Promise<string> {
   const service = config.openAiBaseUrl;
   const serviceHost = new URL(service).hostname;
-  const attempts = 3;
+  // Retry is user-driven from the desktop app so VPN drops don't hold the pipeline in a retry loop.
+  const attempts = 1;
   for (let attempt = 1; attempt <= attempts; attempt++) {
     const started = Date.now();
     let received = 0;
@@ -93,14 +112,18 @@ export async function requestChatCompletion(messages: ChatMessage[]): Promise<st
         method: "POST",
         redirect: "error",
         headers: { "content-type": "application/json", authorization: `Bearer ${config.openAiApiKey}` },
-        body: JSON.stringify({ model: config.openAiModel, temperature: 0.35, stream: true, messages }),
+        // BuzzAI occasionally closes the upstream SSE bridge after generation has
+        // started ("Unable to forward upstream stream"). A normal JSON response
+        // keeps the full completion on one reliable connection; readCompletion
+        // still accepts SSE for compatible gateways that ignore this flag.
+        body: JSON.stringify({ model: config.openAiModel, temperature: 0.35, stream: false, messages }),
         signal: AbortSignal.timeout(300_000),
       });
       if (!response.ok) {
         const body = await response.text();
         let detail = "";
         if (!body.trimStart().startsWith("<")) {
-          try { detail = (JSON.parse(body) as CompletionChunk).error?.message ?? body; }
+          try { detail = getErrorMessage((JSON.parse(body) as CompletionChunk).error) || body; }
           catch { detail = body; }
         }
         const retryAfter = response.headers.get("retry-after");

@@ -1,6 +1,6 @@
 import React from "react";
 import { AbsoluteFill, Audio, Img, Sequence, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
-import type { ConceptBeat, ConceptObject, ConceptStoryboard, RenderProject, TrendingRepo } from "../types";
+import type { ConceptBeat, ConceptConnector, ConceptObject, ConceptStoryboard, RenderProject, TrendingRepo } from "../types";
 import { isBadgeAsset } from "../lib/visual-assets";
 import { LayoutGuard, TextBlock, textLayout, textProgress, VIDEO_FONT } from "./text-layout";
 
@@ -289,7 +289,7 @@ function fallbackConceptStoryboard(project: RenderProject): ConceptStoryboard {
 }
 
 function conceptObjectWidth(object: ConceptObject): number {
-  return object.kind === "context" ? 360 : object.kind === "problem" ? 310 : 270;
+  return object.kind === "context" ? 235 : object.kind === "problem" ? 205 : 195;
 }
 
 function conceptObjectPosition(object: ConceptObject): { x: number; y: number } {
@@ -300,27 +300,76 @@ function conceptObjectPosition(object: ConceptObject): { x: number; y: number } 
   };
 }
 
-function ConceptObjectCard({ object, active, focus, beatProgress }: { object: ConceptObject; active: boolean; focus: boolean; beatProgress: number }) {
+type ConceptPositionMap = Map<string, { x: number; y: number }>;
+
+/** Place objects from the graph structure so model coordinates cannot create a random collage. */
+function layoutConceptObjects(objects: Map<string, ConceptObject>, connectors: ConceptConnector[]): ConceptPositionMap {
+  const incoming = new Map<string, number>();
+  const outgoing = new Map<string, string[]>();
+  for (const id of objects.keys()) { incoming.set(id, 0); outgoing.set(id, []); }
+  for (const connector of connectors) {
+    if (!objects.has(connector.from) || !objects.has(connector.to)) continue;
+    outgoing.get(connector.from)!.push(connector.to);
+    incoming.set(connector.to, (incoming.get(connector.to) ?? 0) + 1);
+  }
+  const layer = new Map<string, number>();
+  const queue = [...objects.keys()].filter((id) => (incoming.get(id) ?? 0) === 0);
+  for (const id of objects.keys()) if (!queue.includes(id) && !layer.has(id)) queue.push(id);
+  let cursor = 0;
+  while (cursor < queue.length) {
+    const id = queue[cursor++]!;
+    const current = layer.get(id) ?? 0;
+    for (const next of outgoing.get(id) ?? []) {
+      layer.set(next, Math.max(layer.get(next) ?? 0, current + 1));
+      if (!queue.includes(next)) queue.push(next);
+    }
+  }
+  const maxLayer = Math.max(0, ...layer.values());
+  const columns = Math.min(4, maxLayer + 1);
+  const rowCount = Math.max(1, Math.ceil((maxLayer + 1) / columns));
+  const groups = new Map<number, string[]>();
+  for (const [id, object] of objects) {
+    const level = layer.get(id) ?? 0;
+    const list = groups.get(level) ?? [];
+    list.push(id);
+    groups.set(level, list);
+    // Keep the source ordering as a stable tie-breaker for equivalent graphs.
+    list.sort((left, right) => (objects.get(left)!.y - objects.get(right)!.y) || left.localeCompare(right));
+  }
+  const positions: ConceptPositionMap = new Map();
+  for (const [level, ids] of groups) {
+    const column = level % columns;
+    const row = Math.floor(level / columns);
+    const x = columns === 1 ? 50 : 12 + (column / (columns - 1)) * 76;
+    const spread = Math.min(66, Math.max(22, 78 / Math.max(1, ids.length)));
+    const rowCenter = rowCount === 1 ? 50 : 24 + (row / (rowCount - 1)) * 52;
+    const start = rowCenter - ((ids.length - 1) * spread) / 2;
+    ids.forEach((id, index) => positions.set(id, { x, y: Math.max(16, Math.min(84, start + index * spread)) }));
+  }
+  return positions;
+}
+
+function ConceptObjectCard({ object, position, active, focus, beatProgress }: { object: ConceptObject; position: { x: number; y: number }; active: boolean; focus: boolean; beatProgress: number }) {
   const color = object.kind === "problem" ? palette.coral : object.kind === "result" ? palette.teal : object.kind === "context" ? palette.yellow : palette.ink;
   const isContext = object.kind === "context";
   const width = conceptObjectWidth(object);
-  const { x, y } = conceptObjectPosition(object);
+  const { x, y } = position;
   const contentWidth = width - 2 * 16 - 2 * (isContext ? 4 : 3);
   const detail = object.detail ? textLayout(object.detail, contentWidth, 126, 20, 18, 700) : null;
   const label = textLayout(object.label, contentWidth, 58, 24, 21, 900);
   const cardHeight = Math.max(isContext ? 170 : 132, label.height + (detail?.height ?? 0) + (detail ? 55 : 32));
-  return <div data-text-region={`原理对象 ${object.id}`} style={{ position: "absolute", left: `${x}%`, top: `${y}%`, width, height: cardHeight, transform: `translate(-50%, -50%) scale(${0.94 + (active ? beatProgress : 1) * 0.06})`, opacity: active ? beatProgress : 1, boxSizing: "border-box", padding: 16, border: `${isContext ? 4 : 3}px ${isContext ? "dashed" : "solid"} ${color}`, borderRadius: isContext ? 46 : 24, background: isContext ? "rgba(247,198,75,.13)" : "#fffef9", boxShadow: focus ? `0 0 0 8px ${color}33, 0 9px 0 ${color}55` : `0 8px 0 ${color}33`, textAlign: "center", zIndex: isContext ? 1 : 3 }}>
+  return <div data-concept-card={object.id} data-text-region={`原理对象 ${object.id}`} style={{ position: "absolute", left: `${x}%`, top: `${y}%`, width, height: cardHeight, transform: `translate(-50%, -50%) scale(${0.94 + (active ? beatProgress : 1) * 0.06})`, opacity: active ? beatProgress : 1, boxSizing: "border-box", padding: 16, border: `${isContext ? 4 : 3}px ${isContext ? "dashed" : "solid"} ${color}`, borderRadius: isContext ? 46 : 24, background: isContext ? "rgba(247,198,75,.13)" : "#fffef9", boxShadow: focus ? `0 0 0 8px ${color}33, 0 9px 0 ${color}55` : `0 8px 0 ${color}33`, textAlign: "center", zIndex: isContext ? 1 : 3 }}>
     <TextBlock layout={label} name={`原理对象 ${object.id} 标题`} progress={active ? beatProgress : 1} style={{ color: palette.ink, fontWeight: 950 }} />
     {detail && <TextBlock layout={detail} name={`原理对象 ${object.id} 说明`} progress={active ? beatProgress : 1} style={{ marginTop: 7, color: palette.muted, fontWeight: 700 }} />}
   </div>;
 }
 
-function ConceptConnector({ connector, objects, visible }: { connector: { from: string; to: string; label?: string }; objects: Map<string, ConceptObject>; visible: number }) {
+function ConceptConnector({ connector, objects, positions, visible }: { connector: ConceptConnector; objects: Map<string, ConceptObject>; positions: ConceptPositionMap; visible: number }) {
   const from = objects.get(connector.from);
   const to = objects.get(connector.to);
   if (!from || !to) return null;
-  const fromPosition = conceptObjectPosition(from);
-  const toPosition = conceptObjectPosition(to);
+  const fromPosition = positions.get(from.id) ?? conceptObjectPosition(from);
+  const toPosition = positions.get(to.id) ?? conceptObjectPosition(to);
   const dx = toPosition.x - fromPosition.x;
   const dy = toPosition.y - fromPosition.y;
   const distance = Math.max(1, Math.sqrt(dx * dx + dy * dy));
@@ -328,8 +377,8 @@ function ConceptConnector({ connector, objects, visible }: { connector: { from: 
   const uy = dy / distance;
   const fromHalfWidth = (conceptObjectWidth(from) / 900) * 50;
   const toHalfWidth = (conceptObjectWidth(to) / 900) * 50;
-  const fromHalfHeight = from.kind === "context" ? 9 : 7;
-  const toHalfHeight = to.kind === "context" ? 9 : 7;
+  const fromHalfHeight = (from.kind === "context" ? 170 : 145) / 1050 * 50;
+  const toHalfHeight = (to.kind === "context" ? 170 : 145) / 1050 * 50;
   const fromX = fromPosition.x + ux * fromHalfWidth;
   const fromY = fromPosition.y + uy * fromHalfHeight;
   const toX = toPosition.x - ux * toHalfWidth;
@@ -342,7 +391,7 @@ function ConceptConnector({ connector, objects, visible }: { connector: { from: 
   const edgeDy = safeToY - safeFromY;
   const length = Math.sqrt(edgeDx * edgeDx + edgeDy * edgeDy);
   const angle = Math.atan2(edgeDy, edgeDx) * 180 / Math.PI;
-  return <div data-text-region={`原理连线 ${connector.from}-${connector.to}`} style={{ position: "absolute", left: `${safeFromX}%`, top: `${safeFromY}%`, width: `${length}%`, height: 4, transformOrigin: "0 50%", transform: `rotate(${angle}deg) scaleX(${visible})`, opacity: visible, background: palette.coral, zIndex: 2, borderRadius: 4 }}><span style={{ position: "absolute", right: -5, top: -7, width: 0, height: 0, borderTop: "9px solid transparent", borderBottom: "9px solid transparent", borderLeft: `14px solid ${palette.coral}` }} />{connector.label && <span style={{ position: "absolute", left: "50%", top: edgeDy < 0 ? 12 : -31, transform: "translateX(-50%)", padding: "3px 9px", borderRadius: 99, background: "#fffef9", color: palette.coral, fontSize: 16, fontWeight: 850, whiteSpace: "nowrap" }}>{connector.label}</span>}</div>;
+  return <div data-concept-connector={`${connector.from}-${connector.to}`} data-text-region={`原理连线 ${connector.from}-${connector.to}`} style={{ position: "absolute", left: `${safeFromX}%`, top: `${safeFromY}%`, width: `${length}%`, height: 4, transformOrigin: "0 50%", transform: `rotate(${angle}deg) scaleX(${visible})`, opacity: visible, background: palette.coral, zIndex: 2, borderRadius: 4 }}><span style={{ position: "absolute", right: -5, top: -7, width: 0, height: 0, borderTop: "9px solid transparent", borderBottom: "9px solid transparent", borderLeft: `14px solid ${palette.coral}` }} />{connector.label && <span style={{ position: "absolute", left: "50%", top: edgeDy < 0 ? 12 : -31, transform: "translateX(-50%)", padding: "3px 9px", borderRadius: 99, background: "#fffef9", color: palette.coral, fontSize: 16, fontWeight: 850, whiteSpace: "nowrap" }}>{connector.label}</span>}</div>;
 }
 
 function ConceptStoryboardScene({ project, caption, durationFrames, beatId }: { project: RenderProject; caption: string; durationFrames: number; beatId?: string }) {
@@ -358,6 +407,10 @@ function ConceptStoryboardScene({ project, caption, durationFrames, beatId }: { 
   const visibleBeat = (index: number) => index === activeIndex ? beatProgress : 1;
   const seen = new Set(storyboard.beats.slice(0, activeIndex + 1).flatMap((beat) => beat.objectIds));
   const connectors = storyboard.beats.slice(0, activeIndex + 1).flatMap((beat) => beat.connectors ?? []);
+  // Fix world positions from the complete graph. Newly spoken edges are revealed
+  // over time without moving cards that the viewer has already learned.
+  const allConnectors = storyboard.beats.flatMap((beat) => beat.connectors ?? []);
+  const positions = layoutConceptObjects(objects, allConnectors);
   const current = storyboard.beats[activeIndex];
   const title = textLayout(`${project.title || project.repo}：${storyboard.title}`, 936, 138, 44, 34, 950);
   const panelTop = 234 + 32 + 15 + title.height + 28;
@@ -369,14 +422,13 @@ function ConceptStoryboardScene({ project, caption, durationFrames, beatId }: { 
     <div data-text-region="原理故事板画布" style={{ position: "absolute", left: 58, right: 58, top: panelTop, height: panelHeight, boxSizing: "border-box", padding: 28, border: `3px solid ${palette.ink}`, borderRadius: 34, background: "rgba(255,255,255,.82)", boxShadow: "0 14px 0 rgba(20,52,74,.11)" }}>
       <div style={{ height: 46, display: "flex", alignItems: "center", justifyContent: "space-between", color: palette.teal, fontSize: 19, fontWeight: 950 }}><span>{storyboard.summary}</span><span style={{ color: palette.muted, fontSize: 16 }}>{activeIndex + 1} / {storyboard.beats.length}</span></div>
       <div style={{ height: 4, margin: "8px 0 10px", background: "rgba(20,52,74,.12)", borderRadius: 5 }}><div style={{ width: `${t * 100}%`, height: "100%", background: `linear-gradient(90deg, ${palette.coral}, ${palette.teal})`, borderRadius: 5 }} /></div>
-      <div style={{ position: "relative", height: panelHeight - 118, overflow: "hidden", borderRadius: 22, background: "rgba(247,244,235,.68)" }}>
-        <div style={{ position: "absolute", inset: 0, backgroundImage: "linear-gradient(rgba(20,52,74,.07) 1px, transparent 1px), linear-gradient(90deg, rgba(20,52,74,.07) 1px, transparent 1px)", backgroundSize: "64px 64px", opacity: .55 }} />
-        {connectors.map((connector, index) => <ConceptConnector key={`${connector.from}-${connector.to}-${index}`} connector={connector} objects={objects} visible={index < connectors.length - 1 ? 1 : visibleBeat(activeIndex)} />)}
+      <div style={{ position: "relative", height: panelHeight - 118, overflow: "hidden", borderRadius: 22, background: "transparent" }}>
+        {connectors.map((connector, index) => <ConceptConnector key={`${connector.from}-${connector.to}-${index}`} connector={connector} objects={objects} positions={positions} visible={index < connectors.length - 1 ? 1 : visibleBeat(activeIndex)} />)}
         {[...objects.values()].filter((object) => seen.has(object.id)).map((object) => {
           const beatIndex = storyboard.beats.findIndex((beat) => beat.objectIds.includes(object.id));
           const isCurrent = beatIndex === activeIndex;
           const focus = Boolean(current?.focusIds?.includes(object.id));
-          return <ConceptObjectCard key={object.id} object={object} active focus={focus} beatProgress={isCurrent ? visibleBeat(activeIndex) : 1} />;
+          return <ConceptObjectCard key={object.id} object={object} position={positions.get(object.id) ?? conceptObjectPosition(object)} active focus={focus} beatProgress={isCurrent ? visibleBeat(activeIndex) : 1} />;
         })}
         {current && <div style={{ position: "absolute", left: 20, right: 20, bottom: 16, textAlign: "center", color: palette.coral, fontSize: 20, fontWeight: 900, opacity: visibleBeat(activeIndex) }}>{current.cue}</div>}
       </div>

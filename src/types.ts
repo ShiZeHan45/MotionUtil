@@ -81,6 +81,13 @@ export type ConceptStoryboard = {
   beats: ConceptBeat[];
 };
 
+export type StoryboardValidationIssue = {
+  code: "missing-object" | "missing-connector" | "orphan-object" | "overlap" | "out-of-bounds" | "invalid-connector" | "weak-sequence";
+  beatId?: string;
+  objectId?: string;
+  message: string;
+};
+
 export type ProjectScript = {
   repo: string;
   rank: number;

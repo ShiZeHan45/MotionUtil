@@ -53,7 +53,11 @@ public sealed class PipelineService(RuntimePaths paths, ProcessRunner processes,
         var reportFile = Path.Combine(runDirectory, "run-report.json");
         await SaveLatestRunAsync(outputDirectory, runId);
         var completed = new HashSet<string>(report.CompletedNodes, StringComparer.OrdinalIgnoreCase);
-        report.CompletedNodes = Labels.Select((_, index) => $"节点 {index + 1}").Where(completed.Contains).ToList();
+        report.CompletedNodes = Labels
+            .Select((label, index) => (label, index))
+            .Where(item => item.index < startIndex && completed.Contains(item.label))
+            .Select(item => item.label)
+            .ToList();
         await SaveReportAsync(reportFile, report, cancellationToken);
 
         try
