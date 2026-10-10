@@ -3,6 +3,7 @@ import { AbsoluteFill, Audio, Img, Loop, OffthreadVideo, Sequence, Video, cancel
 import type { ConceptBeat, ConceptConnector, ConceptObject, ConceptStoryboard, LeaderboardContext, RenderProject, TrendingRepo } from "../types";
 import { leaderboardPresentation } from "../lib/leaderboard";
 import { isBadgeAsset } from "../lib/visual-assets";
+import { selectedOpeningHook } from "../lib/opening-hook";
 import { LayoutGuard, TextBlock, textLayout, textProgress, VIDEO_FONT } from "./text-layout";
 import { connectorId, layoutConceptGraph, type ConceptGraphLayout, type GraphEdge, type GraphNode } from "./concept-layout";
 
@@ -223,6 +224,7 @@ function LeaderboardScene({ project, leaderboard, caption, durationFrames, conte
   const { fps } = useVideoConfig();
   const pulse = 1 + Math.sin(frame / 8) * 0.025;
   const presentation = leaderboardPresentation(context);
+  const hook = selectedOpeningHook(project.openingHook);
   // Keep each rank readable: page a longer list and finish on the featured project.
   const pages = Math.max(1, Math.ceil(leaderboard.length / 5));
   const selectedPage = Math.max(0, Math.floor(leaderboard.findIndex((repo) => repo.rank === project.rank) / 5));
@@ -235,7 +237,9 @@ function LeaderboardScene({ project, leaderboard, caption, durationFrames, conte
   return <AbsoluteFill style={{ color: palette.ink }}>
     <div style={{ position: "absolute", top: 180, left: 0, right: 0, textAlign: "center" }}>
       <div style={{ fontSize: 26, color: palette.teal, fontWeight: 900 }}>{presentation.name}</div>
-      <div style={{ marginTop: 22, fontSize: 66, fontWeight: 950 }}>{presentation.title}</div>
+      {hook
+        ? <div data-text-region="开场知识钩子" style={{ margin: "22px 76px 0", display: "flex", justifyContent: "center" }}><TextBlock layout={textLayout(hook.text, 928, 180, 46, 40, 950)} name="开场知识钩子" style={{ fontWeight: 950, textAlign: "center" }} /></div>
+        : <div style={{ marginTop: 22, fontSize: 66, fontWeight: 950 }}>{presentation.title}</div>}
       <div style={{ marginTop: 10, fontSize: 26, color: palette.muted }}>{presentation.dateLabel || "关注值得了解的开源项目"}</div>
     </div>
     <div style={{ position: "absolute", top: 480, left: 140, right: 140, display: "flex", flexDirection: "column", alignItems: "center", transform: `scale(${pulse})`, transformOrigin: "center top" }}>

@@ -65,6 +65,7 @@ function getErrorMessage(error: CompletionChunk["error"]): string {
 
 function isRetryableStreamError(message: string): boolean {
   return /unable to forward upstream stream/i.test(message)
+    || /upstream pre-output time budget exhausted/i.test(message)
     || /\b(?:temporarily unavailable|try again later|timeout|timed out|overloaded|too many requests|rate.?limit|internal server error|bad gateway|gateway timeout|service unavailable|connection reset|connection closed|econnreset|eai_again)\b/i.test(message)
     || /\bupstream\b.{0,80}\b(?:error|failed|failure|unavailable|timeout|timed out|closed|reset)\b/i.test(message);
 }

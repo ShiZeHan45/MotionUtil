@@ -50,6 +50,40 @@ export type NarrationSegment = {
   beatId?: string;
 };
 
+export type HookFact = {
+  id: string;
+  point: string;
+  sourceUrl: string;
+  sourceExcerpt: string;
+  sentenceNumber: number;
+  suitable: boolean;
+  reason: string;
+};
+
+export type OpeningHookCandidate = {
+  id: string;
+  type: "A" | "B" | "C";
+  text: string;
+  spokenText?: string;
+  factIds: string[];
+  payoffBeatIds: string[];
+  payoffExplanation: string;
+  suitable: boolean;
+  reason: string;
+};
+
+export type OpeningHookPlan = {
+  version: 1;
+  targetAudience: string;
+  domain: string;
+  missingInfo: string[];
+  facts: HookFact[];
+  candidates: OpeningHookCandidate[];
+  selectedId: string;
+  selectedReason: string;
+  selectedPayoff: { beatId: string; excerpt: string };
+};
+
 export type VisualAsset = {
   id: string;
   path: string;
@@ -116,6 +150,7 @@ export type ProjectScript = {
   usageSteps: string[];
   requirements: string[];
   limitations: string[];
+  openingHook?: OpeningHookPlan;
   visualAssets?: VisualAsset[];
   conceptStoryboard?: ConceptStoryboard;
   narrationSegments: NarrationSegment[];

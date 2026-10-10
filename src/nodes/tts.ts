@@ -5,8 +5,9 @@ import type { NarrationSegment, ProjectScript, RenderProject } from "../types";
 import { config } from "../lib/config";
 import { writeJson } from "../lib/io";
 import { repoSlug } from "../lib/paths";
-import { shortenScriptForDuration } from "./script";
+import { persistHookReview, shortenScriptForDuration } from "./script";
 import { loadNarrationTiming, MAX_VIDEO_DURATION_MS, recordNarrationTiming, spokenTimeline } from "../lib/narration";
+import { validateOpeningHook } from "../lib/opening-hook";
 
 type WavInfo = { durationMs: number; sampleRate: number; channels: number; byteRate: number };
 type ScriptWithSpokenText = Omit<ProjectScript, "narrationSegments"> & {
@@ -135,9 +136,11 @@ async function persistAdjustedScripts(scripts: ProjectScript[], audioDirectory: 
   const scriptsDirectory = path.join(path.dirname(audioDirectory), "scripts");
   await writeJson(path.join(scriptsDirectory, "index.json"), scripts);
   await Promise.all(scripts.map((script) => writeJson(path.join(scriptsDirectory, `${repoSlug(script.repo)}.json`), script)));
+  await Promise.all(scripts.map((script) => persistHookReview(script, scriptsDirectory)));
 }
 
 export async function synthesizeScripts(scripts: ProjectScript[], audioDirectory: string): Promise<RenderProject[]> {
+  for (const script of scripts) if (script.openingHook) validateOpeningHook(script);
   if (!Number.isFinite(config.kokoroSpeed) || config.kokoroSpeed <= 0) throw new Error("KOKORO_SPEED 必须是大于 0 的数字");
   if (!Number.isFinite(config.kokoroPauseMs) || config.kokoroPauseMs < 0) throw new Error("KOKORO_PAUSE_MS 必须是非负数字");
   await mkdir(audioDirectory, { recursive: true });
