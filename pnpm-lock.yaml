@@ -23,6 +23,9 @@ importers:
       dotenv:
         specifier: 16.6.1
         version: 16.6.1
+      elkjs:
+        specifier: 0.12.0
+        version: 0.12.0
       react:
         specifier: 19.1.1
         version: 19.1.1
@@ -1038,6 +1041,9 @@ packages:
 
   electron-to-chromium@1.5.444:
     resolution: {integrity: sha512-5ss/uJfoDYDHT0lfJzT6FbcskIzROIOPf0BbbFkGcvDzoJU7i//9GDrwwIHQVmIsrAGiF3ihpADBRIsrEFt1rQ==}
+
+  elkjs@0.12.0:
+    resolution: {integrity: sha512-YZcKynxVxYoKIOEpywEPwCFdg+BTbxQRNf3pbwdDCvc8O3kQD8bmIwSxKU1eOTVc4Xo+VG9Te+575mlfvOrhEQ==}
 
   encoding-sniffer@0.2.1:
     resolution: {integrity: sha512-5gvq20T6vfpekVtqrYQsSCFZ1wEg5+wW0/QaZMWkFr6BqD3NfKs0rLCx4rrVlSWJeZb5NBJgVLswK/w2MWU+Gw==}
@@ -2670,6 +2676,8 @@ snapshots:
   dotenv@17.3.1: {}
 
   electron-to-chromium@1.5.444: {}
+
+  elkjs@0.12.0: {}
 
   encoding-sniffer@0.2.1:
     dependencies:

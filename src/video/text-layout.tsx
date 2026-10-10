@@ -1,5 +1,6 @@
 import React, { useLayoutEffect, useRef } from "react";
 import { cancelRender, useCurrentFrame } from "remotion";
+import { rectsOverlap, segmentCrossesRect, type GraphPoint, type GraphRect } from "./concept-layout";
 
 export const VIDEO_FONT = "Arial, 'Microsoft YaHei', sans-serif";
 export type TextLayout = { text: string; width: number; fontSize: number; lineHeight: number; height: number; pages: string[][] };
@@ -102,11 +103,10 @@ export function LayoutGuard({ children }: { children: React.ReactNode }) {
         }
       }
     }
+    const routes: Array<{ id: string; from: string; to: string; points: GraphPoint[]; label?: GraphRect }> = [];
     for (const connector of ref.current.querySelectorAll<HTMLElement>("[data-concept-connector]")) {
-      // The line grows with scaleX, so its transformed bounds are intentionally
-      // near zero at the start of a beat. Validate the untransformed length
-      // recorded by the renderer instead of treating that animation as a
-      // broken connector.
+      if (getComputedStyle(connector).opacity === "0") continue;
+      // Validate the full route rather than the animated, partly drawn stroke.
       const connectorLength = Number.parseFloat(connector.dataset.connectorLength ?? "");
       if (Number.isFinite(connectorLength) && connectorLength < 12) {
         cancelRender(new Error(`原理布局失败：连线 ${connector.dataset.conceptConnector} 长度不足，帧 ${frame}`));
@@ -116,6 +116,43 @@ export function LayoutGuard({ children }: { children: React.ReactNode }) {
         const connectorBounds = connector.getBoundingClientRect();
         if (Math.max(connectorBounds.width, connectorBounds.height) < 12) {
           cancelRender(new Error(`原理布局失败：连线 ${connector.dataset.conceptConnector} 长度不足，帧 ${frame}`));
+          return;
+        }
+      }
+      const path = connector.querySelector<SVGPathElement>("[data-connector-path]");
+      const transform = path?.getScreenCTM();
+      if (!path || !transform) continue;
+      const points = (JSON.parse(path.dataset.routePoints ?? "[]") as GraphPoint[]).map((point) => {
+        const transformed = new DOMPoint(point.x, point.y).matrixTransform(transform);
+        return { x: transformed.x, y: transformed.y };
+      });
+      const labelElement = connector.querySelector<HTMLElement>("[data-connector-label]");
+      const bounds = labelElement?.getBoundingClientRect();
+      routes.push({ id: connector.dataset.conceptConnector!, from: connector.dataset.connectorFrom!, to: connector.dataset.connectorTo!, points,
+        label: bounds ? { x: bounds.left, y: bounds.top, width: bounds.width, height: bounds.height } : undefined });
+    }
+    for (const [index, route] of routes.entries()) {
+      for (const card of cards) {
+        const bounds = card.getBoundingClientRect();
+        const rect = { x: bounds.left, y: bounds.top, width: bounds.width, height: bounds.height };
+        if (card.dataset.conceptCard !== route.from && card.dataset.conceptCard !== route.to
+          && route.points.slice(1).some((point, pointIndex) => segmentCrossesRect(route.points[pointIndex]!, point, rect, 4))) {
+          cancelRender(new Error(`原理布局失败：连线 ${route.id} 穿过卡片 ${card.dataset.conceptCard}，帧 ${frame}`));
+          return;
+        }
+        if (route.label && rectsOverlap(route.label, rect, 2)) {
+          cancelRender(new Error(`原理布局失败：标签 ${route.id} 遮挡卡片 ${card.dataset.conceptCard}，帧 ${frame}`));
+          return;
+        }
+      }
+      if (!route.label) continue;
+      for (const other of routes.slice(index + 1)) if (other.label && rectsOverlap(route.label, other.label, 2)) {
+        cancelRender(new Error(`原理布局失败：标签 ${route.id} 与 ${other.id} 重叠，帧 ${frame}`));
+        return;
+      }
+      for (const other of routes.filter((other) => other.id !== route.id)) {
+        if (other.points.slice(1).some((point, pointIndex) => segmentCrossesRect(other.points[pointIndex]!, point, route.label!, 2))) {
+          cancelRender(new Error(`原理布局失败：标签 ${route.id} 遮挡连线 ${other.id}，帧 ${frame}`));
           return;
         }
       }

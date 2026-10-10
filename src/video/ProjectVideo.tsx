@@ -1,8 +1,9 @@
 import React from "react";
-import { AbsoluteFill, Audio, Img, Loop, OffthreadVideo, Sequence, Video, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
+import { AbsoluteFill, Audio, Img, Loop, OffthreadVideo, Sequence, Video, cancelRender, continueRender, delayRender, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
 import type { ConceptBeat, ConceptConnector, ConceptObject, ConceptStoryboard, RenderProject, TrendingRepo } from "../types";
 import { isBadgeAsset } from "../lib/visual-assets";
 import { LayoutGuard, TextBlock, textLayout, textProgress, VIDEO_FONT } from "./text-layout";
+import { connectorId, layoutConceptGraph, type ConceptGraphLayout, type GraphEdge, type GraphNode } from "./concept-layout";
 
 export type VideoProps = { project: RenderProject; leaderboard: TrendingRepo[]; background?: string; backgroundFrames?: string[]; backgroundDurationInFrames?: number };
 export const FPS = 30;
@@ -306,70 +307,6 @@ function conceptObjectWidth(object: ConceptObject): number {
   return object.kind === "context" ? 235 : object.kind === "problem" ? 205 : 195;
 }
 
-function conceptObjectPosition(object: ConceptObject): { x: number; y: number } {
-  const xInset = Math.max(16, Math.min(28, (conceptObjectWidth(object) / 900) * 50));
-  return {
-    x: Math.max(xInset, Math.min(100 - xInset, object.x)),
-    y: Math.max(15, Math.min(84, object.y)),
-  };
-}
-
-type ConceptPositionMap = Map<string, { x: number; y: number }>;
-
-/** Place objects from the graph structure so model coordinates cannot create a random collage. */
-function layoutConceptObjects(objects: Map<string, ConceptObject>, connectors: ConceptConnector[], canvasWidth: number, canvasHeight: number): ConceptPositionMap {
-  const incoming = new Map<string, number>();
-  const outgoing = new Map<string, string[]>();
-  for (const id of objects.keys()) { incoming.set(id, 0); outgoing.set(id, []); }
-  for (const connector of connectors) {
-    if (!objects.has(connector.from) || !objects.has(connector.to)) continue;
-    outgoing.get(connector.from)!.push(connector.to);
-    incoming.set(connector.to, (incoming.get(connector.to) ?? 0) + 1);
-  }
-  const layer = new Map<string, number>();
-  const queue = [...objects.keys()].filter((id) => (incoming.get(id) ?? 0) === 0);
-  for (const id of objects.keys()) if (!queue.includes(id) && !layer.has(id)) queue.push(id);
-  let cursor = 0;
-  while (cursor < queue.length) {
-    const id = queue[cursor++]!;
-    const current = layer.get(id) ?? 0;
-    for (const next of outgoing.get(id) ?? []) {
-      layer.set(next, Math.max(layer.get(next) ?? 0, current + 1));
-      if (!queue.includes(next)) queue.push(next);
-    }
-  }
-  const maxLayer = Math.max(0, ...layer.values());
-  // Three columns leave enough breathing room for the cards themselves. A
-  // four-column grid makes adjacent cards nearly touch after their endpoint
-  // insets, producing a connector that is only a few pixels long.
-  const columns = Math.min(3, maxLayer + 1);
-  const groups = new Map<number, string[]>();
-  for (const id of objects.keys()) {
-    const level = layer.get(id) ?? 0;
-    const column = level % columns;
-    const list = groups.get(column) ?? [];
-    list.push(id);
-    groups.set(column, list);
-    list.sort((left, right) => ((layer.get(left) ?? 0) - (layer.get(right) ?? 0)) || (objects.get(left)!.y - objects.get(right)!.y) || left.localeCompare(right));
-  }
-  const positions: ConceptPositionMap = new Map();
-  const inset = Math.max(...[...objects.values()].map((object) => conceptObjectWidth(object))) / 2 + 16;
-  for (const [column, ids] of groups) {
-    const x = columns === 1 ? canvasWidth / 2 : inset + column / (columns - 1) * (canvasWidth - inset * 2);
-    const heights = ids.map((id) => conceptCardLayout(objects.get(id)!).cardHeight);
-    const contentHeight = heights.reduce((total, height) => total + height, 0);
-    const gap = ids.length > 1 ? Math.max(36, Math.min(90, (canvasHeight - 48 - contentHeight) / (ids.length - 1))) : 0;
-    const totalHeight = contentHeight + gap * (ids.length - 1);
-    let top = Math.max(24, (canvasHeight - totalHeight) / 2);
-    ids.forEach((id, index) => {
-      const height = heights[index]!;
-      positions.set(id, { x: x / canvasWidth * 100, y: (top + height / 2) / canvasHeight * 100 });
-      top += height + gap;
-    });
-  }
-  return positions;
-}
-
 function conceptCardLayout(object: ConceptObject) {
   const isContext = object.kind === "context";
   const width = conceptObjectWidth(object);
@@ -380,75 +317,131 @@ function conceptCardLayout(object: ConceptObject) {
   return { width, detail, label, cardHeight };
 }
 
-function ConceptObjectCard({ object, position, active, focus, beatProgress }: { object: ConceptObject; position: { x: number; y: number }; active: boolean; focus: boolean; beatProgress: number }) {
+function ConceptObjectCard({ object, position, active, focus, beatProgress }: { object: ConceptObject; position: GraphNode; active: boolean; focus: boolean; beatProgress: number }) {
   const color = object.kind === "problem" ? palette.coral : object.kind === "result" ? palette.teal : object.kind === "context" ? palette.yellow : palette.ink;
   const isContext = object.kind === "context";
-  const { x, y } = position;
+  const x = position.x + position.width / 2;
+  const y = position.y + position.height / 2;
   const { width, detail, label, cardHeight } = conceptCardLayout(object);
-  return <div data-concept-card={object.id} data-text-region={`原理对象 ${object.id}`} style={{ position: "absolute", left: `${x}%`, top: `${y}%`, width, height: cardHeight, transform: `translate(-50%, -50%) scale(${0.94 + (active ? beatProgress : 1) * 0.06})`, opacity: active ? beatProgress : 1, boxSizing: "border-box", padding: 16, border: `${isContext ? 4 : 3}px ${isContext ? "dashed" : "solid"} ${color}`, borderRadius: isContext ? 46 : 24, background: isContext ? "rgba(247,198,75,.13)" : "#fffef9", boxShadow: focus ? `0 0 0 8px ${color}33, 0 9px 0 ${color}55` : `0 8px 0 ${color}33`, textAlign: "center", zIndex: isContext ? 1 : 3 }}>
+  return <div data-concept-card={object.id} data-text-region={`原理对象 ${object.id}`} style={{ position: "absolute", left: x, top: y, width, height: cardHeight, transform: `translate(-50%, -50%) scale(${0.94 + (active ? beatProgress : 1) * 0.06})`, opacity: active ? beatProgress : 1, boxSizing: "border-box", padding: 16, border: `${isContext ? 4 : 3}px ${isContext ? "dashed" : "solid"} ${color}`, borderRadius: isContext ? 46 : 24, background: isContext ? "rgba(247,198,75,.13)" : "#fffef9", boxShadow: focus ? `0 0 0 8px ${color}33, 0 9px 0 ${color}55` : `0 8px 0 ${color}33`, textAlign: "center", zIndex: 3 }}>
     <TextBlock layout={label} name={`原理对象 ${object.id} 标题`} progress={active ? beatProgress : 1} style={{ color: palette.ink, fontWeight: 950 }} />
     {detail && <TextBlock layout={detail} name={`原理对象 ${object.id} 说明`} progress={active ? beatProgress : 1} style={{ marginTop: 7, color: palette.muted, fontWeight: 700 }} />}
   </div>;
 }
 
-function ConceptConnector({ connector, objects, positions, visible, canvasWidth, canvasHeight }: { connector: ConceptConnector; objects: Map<string, ConceptObject>; positions: ConceptPositionMap; visible: number; canvasWidth: number; canvasHeight: number }) {
-  const from = objects.get(connector.from);
-  const to = objects.get(connector.to);
-  if (!from || !to) return null;
-  const fromPosition = positions.get(from.id) ?? conceptObjectPosition(from);
-  const toPosition = positions.get(to.id) ?? conceptObjectPosition(to);
-  const dx = (toPosition.x - fromPosition.x) / 100 * canvasWidth;
-  const dy = (toPosition.y - fromPosition.y) / 100 * canvasHeight;
-  const fromLayout = conceptCardLayout(from);
-  const toLayout = conceptCardLayout(to);
-  const fromInset = Math.min((fromLayout.width / 2 + 8) / Math.max(0.001, Math.abs(dx)), (fromLayout.cardHeight / 2 + 8) / Math.max(0.001, Math.abs(dy)));
-  const toInset = Math.min((toLayout.width / 2 + 8) / Math.max(0.001, Math.abs(dx)), (toLayout.cardHeight / 2 + 8) / Math.max(0.001, Math.abs(dy)));
-  const fromX = fromPosition.x / 100 * canvasWidth + dx * fromInset;
-  const fromY = fromPosition.y / 100 * canvasHeight + dy * fromInset;
-  const edgeDx = dx * Math.max(0, 1 - fromInset - toInset);
-  const edgeDy = dy * Math.max(0, 1 - fromInset - toInset);
-  const length = Math.sqrt(edgeDx * edgeDx + edgeDy * edgeDy);
-  const angle = Math.atan2(edgeDy, edgeDx) * 180 / Math.PI;
-  return <div data-concept-connector={`${connector.from}-${connector.to}`} data-connector-length={length} data-text-region={`原理连线 ${connector.from}-${connector.to}`} style={{ position: "absolute", left: fromX, top: fromY, width: length, height: 4, transformOrigin: "0 50%", transform: `rotate(${angle}deg) scaleX(${visible})`, opacity: visible, background: palette.coral, zIndex: 2, borderRadius: 4 }}><span style={{ position: "absolute", right: -5, top: -7, width: 0, height: 0, borderTop: "9px solid transparent", borderBottom: "9px solid transparent", borderLeft: `14px solid ${palette.coral}` }} />{connector.label && <span style={{ position: "absolute", left: "50%", top: edgeDy < 0 ? 12 : -31, transform: "translateX(-50%)", padding: "3px 9px", borderRadius: 99, background: "#fffef9", color: palette.coral, fontSize: 16, fontWeight: 850, whiteSpace: "nowrap" }}>{connector.label}</span>}</div>;
+function conceptRoute(edge: GraphEdge) {
+  const bridges = (edge.bridges ?? []).map((bridge, index) => {
+    const direction = Math.sign(edge.points[bridge.segmentIndex + 1]!.x - edge.points[bridge.segmentIndex]!.x);
+    const startX = bridge.point.x - direction * bridge.radius;
+    const endX = bridge.point.x + direction * bridge.radius;
+    return { ...bridge, startX, endX, arc: `A ${bridge.radius} ${bridge.radius} 0 0 ${direction > 0 ? 1 : 0} ${endX} ${bridge.point.y}`,
+      startDistance: bridge.distance - bridge.radius + index * (Math.PI - 2) * bridge.radius };
+  });
+  let path = `M ${edge.points[0]!.x} ${edge.points[0]!.y}`;
+  for (let index = 0; index < edge.points.length - 1; index++) {
+    for (const bridge of bridges.filter((bridge) => bridge.segmentIndex === index)) path += ` L ${bridge.startX} ${bridge.point.y} ${bridge.arc}`;
+    const end = edge.points[index + 1]!;
+    path += ` L ${end.x} ${end.y}`;
+  }
+  return { path, bridges, length: edge.length + bridges.reduce((sum, bridge) => sum + (Math.PI - 2) * bridge.radius, 0) };
+}
+
+function ConceptConnector({ connector, edge, visible, width, height }: { connector: ConceptConnector; edge: GraphEdge; visible: number; width: number; height: number }) {
+  const { path } = conceptRoute(edge);
+  const markerId = `arrow-${connector.from}-${connector.to}`.replace(/[^a-z0-9-]/giu, "-");
+  const labelLayout = connector.label ? conceptConnectorLabel(connector.label) : null;
+  return <div data-concept-connector={edge.id} data-connector-from={connector.from} data-connector-to={connector.to} data-connector-length={edge.length} style={{ position: "absolute", inset: 0, opacity: visible, pointerEvents: "none" }}>
+    <svg width={width} height={height} style={{ position: "absolute", inset: 0, overflow: "visible", zIndex: 1 }}>
+      <defs><marker id={markerId} viewBox="0 0 14 14" refX="14" refY="7" markerWidth="14" markerHeight="14" markerUnits="userSpaceOnUse" orient="auto"><path d="M 0 0 L 14 7 L 0 14 Z" fill={palette.coral} /></marker></defs>
+      <path data-connector-path data-route-points={JSON.stringify(edge.points)} d={path} fill="none" stroke={palette.coral} strokeWidth={4} strokeLinejoin="round" strokeLinecap="round" pathLength={1} strokeDasharray={1} strokeDashoffset={1 - visible} />
+      {visible > 0.9 && <path d={path} fill="none" stroke="transparent" strokeWidth={0} markerEnd={`url(#${markerId})`} />}
+    </svg>
+    {labelLayout && edge.label && <div data-connector-label={edge.id} data-text-region={`连线标签 ${edge.id}`} style={{ position: "absolute", left: edge.label.x, top: edge.label.y, width: edge.label.width, height: edge.label.height, boxSizing: "border-box", padding: "3px 8px", borderRadius: 5, background: "#fffef9", color: palette.coral, fontWeight: 850, zIndex: 4 }}>
+      <TextBlock layout={labelLayout} name={`连线标签 ${edge.id}`} style={{ textAlign: "center" }} />
+    </div>}
+  </div>;
+}
+
+function ConceptCrossingBridges({ edges, width, height }: { edges: Array<{ edge: GraphEdge; visible: number }>; width: number; height: number }) {
+  // Draw crossings above every route so an intersection cannot look like a junction.
+  return <svg width={width} height={height} style={{ position: "absolute", inset: 0, pointerEvents: "none", zIndex: 2 }}>
+    {edges.flatMap(({ edge, visible }) => {
+      const route = conceptRoute(edge);
+      return route.bridges.map((bridge, index) => {
+        const progress = Math.max(0, Math.min(1, (visible * route.length - bridge.startDistance) / (Math.PI * bridge.radius)));
+        if (progress === 0) return null;
+        const path = `M ${bridge.startX} ${bridge.point.y} ${bridge.arc}`;
+        return <g key={`${edge.id}-${index}`} opacity={visible}>
+          <path d={path} fill="none" stroke="#fff" strokeWidth={10} pathLength={1} strokeDasharray={1} strokeDashoffset={1 - progress} />
+          <path d={path} fill="none" stroke={palette.coral} strokeWidth={4} pathLength={1} strokeDasharray={1} strokeDashoffset={1 - progress} />
+        </g>;
+      });
+    })}
+  </svg>;
+}
+
+function conceptConnectorLabel(text: string) {
+  const width = Math.min(126, Math.max(40, Array.from(text).reduce((sum, char) => sum + (/[^\x00-\x7F]/u.test(char) ? 16 : 11), 0) + 4));
+  return textLayout(text, width, 1000, 16, 16, 850);
 }
 
 function ConceptStoryboardScene({ project, caption, durationFrames, beatId }: { project: RenderProject; caption: string; durationFrames: number; beatId?: string }) {
   const frame = useCurrentFrame();
   const t = textProgress(frame, durationFrames);
-  const storyboard = project.conceptStoryboard ?? fallbackConceptStoryboard(project);
-  const objects = new Map<string, ConceptObject>();
-  for (const beat of storyboard.beats) for (const object of beat.objects ?? []) objects.set(object.id, object);
+  const storyboard = React.useMemo(() => project.conceptStoryboard ?? fallbackConceptStoryboard(project), [project]);
+  const objects = React.useMemo(() => {
+    const result = new Map<string, ConceptObject>();
+    for (const beat of storyboard.beats) for (const object of beat.objects ?? []) result.set(object.id, object);
+    return result;
+  }, [storyboard]);
   const selectedBeat = beatId ? storyboard.beats.findIndex((beat) => beat.id === beatId) : -1;
   const beatPosition = t * storyboard.beats.length;
   const activeIndex = selectedBeat >= 0 ? selectedBeat : Math.max(0, Math.min(storyboard.beats.length - 1, Math.floor(beatPosition)));
   const beatProgress = selectedBeat >= 0 ? t : Math.max(0, Math.min(1, beatPosition - activeIndex));
-  const visibleBeat = (index: number) => index === activeIndex ? beatProgress : 1;
   const seen = new Set(storyboard.beats.slice(0, activeIndex + 1).flatMap((beat) => beat.objectIds));
-  const connectors = storyboard.beats.slice(0, activeIndex + 1).flatMap((beat) => beat.connectors ?? []);
-  // Fix world positions from the complete graph. Newly spoken edges are revealed
-  // over time without moving cards that the viewer has already learned.
-  const allConnectors = storyboard.beats.flatMap((beat) => beat.connectors ?? []);
+  const connectors = storyboard.beats.slice(0, activeIndex + 1).flatMap((beat, index) => (beat.connectors ?? []).map((connector) => ({ connector, visible: index === activeIndex ? beatProgress : 1 })));
+  const allConnectors = React.useMemo(() => storyboard.beats.flatMap((beat) => beat.connectors ?? []), [storyboard]);
   const current = storyboard.beats[activeIndex];
   const title = textLayout(`${project.title || project.repo}：${storyboard.title}`, 936, 138, 44, 34, 950);
   const panelTop = 234 + 32 + 15 + title.height + 28;
   const panelHeight = 1650 - panelTop;
   const canvasWidth = 1080 - 58 * 2 - 3 * 2 - 28 * 2;
   const canvasHeight = panelHeight - 118;
-  const positions = layoutConceptObjects(objects, allConnectors, canvasWidth, canvasHeight);
+  const graph = React.useMemo(() => ({
+    nodes: [...objects.values()].map((object) => ({ id: object.id, width: conceptCardLayout(object).width, height: conceptCardLayout(object).cardHeight })),
+    edges: allConnectors.map((connector) => {
+      const label = connector.label ? conceptConnectorLabel(connector.label) : null;
+      return { ...connector, labelWidth: label ? label.width + 16 : undefined, labelHeight: label ? label.height + 6 : undefined };
+    }),
+  }), [objects, allConnectors]);
+  const [layout, setLayout] = React.useState<ConceptGraphLayout | null>(null);
+  const handle = React.useMemo(() => delayRender("原理图自动排版与避让验收"), [graph, canvasWidth, canvasHeight]);
+  React.useEffect(() => {
+    let active = true;
+    layoutConceptGraph(graph.nodes, graph.edges, canvasWidth, canvasHeight).then((result) => {
+      if (active) { setLayout(result); continueRender(handle); }
+    }).catch((error) => { if (active) cancelRender(error); });
+    return () => { active = false; continueRender(handle); };
+  }, [graph, canvasWidth, canvasHeight, handle]);
   return <AbsoluteFill style={{ color: palette.ink }}>
     <div style={{ position: "absolute", top: 174, left: 70, display: "flex", gap: 10, fontSize: 20, fontWeight: 900 }}><span style={{ borderRadius: 99, padding: "8px 14px", background: palette.teal, color: "white" }}>#{project.rank}</span><span style={{ borderRadius: 99, padding: "8px 14px", background: "white" }}>原理动画</span></div>
     <div style={{ position: "absolute", top: 234, left: 72, right: 72 }}><div style={{ fontSize: 24, letterSpacing: 3, color: palette.teal, fontWeight: 950 }}>第二步 · 先理解原理</div><TextBlock layout={title} name="原理故事板标题" progress={t} style={{ marginTop: 15, fontWeight: 950 }} /></div>
     <div data-text-region="原理故事板画布" style={{ position: "absolute", left: 58, right: 58, top: panelTop, height: panelHeight, boxSizing: "border-box", padding: 28, border: `3px solid ${palette.ink}`, borderRadius: 34, background: "rgba(255,255,255,.82)", boxShadow: "0 14px 0 rgba(20,52,74,.11)" }}>
       <div style={{ height: 46, display: "flex", alignItems: "center", justifyContent: "space-between", color: palette.teal, fontSize: 19, fontWeight: 950 }}><span>{storyboard.summary}</span><span style={{ color: palette.muted, fontSize: 16 }}>{activeIndex + 1} / {storyboard.beats.length}</span></div>
       <div style={{ height: 4, margin: "8px 0 10px", background: "rgba(20,52,74,.12)", borderRadius: 5 }}><div style={{ width: `${t * 100}%`, height: "100%", background: `linear-gradient(90deg, ${palette.coral}, ${palette.teal})`, borderRadius: 5 }} /></div>
-      <div style={{ position: "relative", height: panelHeight - 118, overflow: "hidden", borderRadius: 22, background: "transparent" }}>
-        {connectors.map((connector, index) => <ConceptConnector key={`${connector.from}-${connector.to}-${index}`} connector={connector} objects={objects} positions={positions} canvasWidth={canvasWidth} canvasHeight={canvasHeight} visible={index < connectors.length - 1 ? 1 : visibleBeat(activeIndex)} />)}
+      <div data-text-region="原理画布安全区" style={{ position: "relative", height: canvasHeight, overflow: "hidden", borderRadius: 22, background: "transparent" }}>
+        {layout && <div data-concept-canvas style={{ position: "absolute", left: layout.offsetX, top: layout.offsetY, width: layout.width, height: layout.height, transform: `scale(${layout.scale})`, transformOrigin: "top left" }}>
+        <LayoutGuard>
+        {connectors.map(({ connector, visible }) => <ConceptConnector key={connectorId(connector)} connector={connector} edge={layout.edges[connectorId(connector)]!} visible={visible} width={layout.width} height={layout.height} />)}
+        <ConceptCrossingBridges edges={connectors.map(({ connector, visible }) => ({ edge: layout.edges[connectorId(connector)]!, visible }))} width={layout.width} height={layout.height} />
         {[...objects.values()].filter((object) => seen.has(object.id)).map((object) => {
           const beatIndex = storyboard.beats.findIndex((beat) => beat.objectIds.includes(object.id));
           const isCurrent = beatIndex === activeIndex;
           const focus = Boolean(current?.focusIds?.includes(object.id));
-          return <ConceptObjectCard key={object.id} object={object} position={positions.get(object.id) ?? conceptObjectPosition(object)} active focus={focus} beatProgress={isCurrent ? visibleBeat(activeIndex) : 1} />;
+          return <ConceptObjectCard key={object.id} object={object} position={layout.nodes[object.id]!} active focus={focus} beatProgress={isCurrent ? beatProgress : 1} />;
         })}
+        </LayoutGuard>
+        </div>}
       </div>
     </div>
     <Subtitle text={caption} durationFrames={durationFrames} />

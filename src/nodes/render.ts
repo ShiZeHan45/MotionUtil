@@ -1,5 +1,5 @@
 import { bundle } from "@remotion/bundler";
-import { renderMedia, selectComposition } from "@remotion/renderer";
+import { renderMedia, renderStill, selectComposition } from "@remotion/renderer";
 import { copyFile, mkdir, readdir, rm, stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { execFile } from "node:child_process";
@@ -9,7 +9,7 @@ import type { RenderProject, TrendingRepo } from "../types";
 import { config } from "../lib/config";
 import { repoSlug } from "../lib/paths";
 import { writeJson } from "../lib/io";
-import { durationInFrames, FPS, type VideoProps } from "../video/ProjectVideo";
+import { durationInFrames, framesForMs, FPS, type VideoProps } from "../video/ProjectVideo";
 import { isBadgeAsset } from "../lib/visual-assets";
 
 const execFileAsync = promisify(execFile);
@@ -130,6 +130,19 @@ export async function renderVideos(projects: RenderProject[], leaderboard: Trend
       inputProps,
       browserExecutable: config.remotionBrowserExecutable,
     });
+    console.log(`[节点 5] 原理图排版预检：${project.repo}`);
+    let frameCursor = 0;
+    for (const segment of project.narrationSegments) {
+      const frames = framesForMs(segment.durationMs);
+      if (segment.scene === "concept") {
+        await renderStill({
+          composition, serveUrl, inputProps, frame: frameCursor + frames - 1,
+          output: null, imageFormat: "png", browserExecutable: config.remotionBrowserExecutable,
+        });
+      }
+      frameCursor += frames;
+    }
+    console.log(`[节点 5] 原理图排版预检通过：${project.repo}`);
     const outputPath = path.join(outputDirectory, outputName(project));
     console.log(`[节点 5] ${index + 1}/${inputProjects.length} 渲染 ${project.repo} (${(durationInFrames(project) / FPS).toFixed(1)} 秒)`);
     let lastRenderPercent = -1;
