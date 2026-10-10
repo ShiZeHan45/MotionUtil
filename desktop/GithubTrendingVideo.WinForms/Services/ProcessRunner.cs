@@ -74,8 +74,12 @@ public sealed class ProcessRunner
         var result = await RunAsync(executable, arguments, workingDirectory, environment, onLine, cancellationToken);
         if (result.ExitCode != 0)
         {
-            var details = string.Join(Environment.NewLine, new[] { result.StandardError.Trim(), result.StandardOutput.Trim() }.Where(x => x.Length > 0));
-            if (details.Length > 5000) details = details[^5000..];
+            var stdout = System.Text.RegularExpressions.Regex.Replace(result.StandardOutput, @"(?:^|[\r\n])\s*(?:\[节点 5\]\s*)?(?:视频模板构建|帧渲染)\s+\d+%\s*(?=$|[\r\n])", "").Trim();
+            var stderr = result.StandardError.Trim();
+            var stdoutLimit = stderr.Length > 0 ? 2000 : 5000;
+            if (stdout.Length > stdoutLimit) stdout = stdout[^stdoutLimit..];
+            if (stderr.Length > 3000) stderr = stderr[^3000..];
+            var details = string.Join(Environment.NewLine, new[] { stdout, stderr }.Where(x => x.Length > 0));
             throw new InvalidOperationException($"命令退出代码 {result.ExitCode}。{Environment.NewLine}{details}");
         }
         return result;

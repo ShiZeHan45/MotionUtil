@@ -6,6 +6,7 @@ import { config } from "../lib/config";
 import { writeJson } from "../lib/io";
 import { repoSlug } from "../lib/paths";
 import { shortenScriptForDuration } from "./script";
+import { loadNarrationTiming, MAX_VIDEO_DURATION_MS, recordNarrationTiming, spokenTimeline } from "../lib/narration";
 
 type WavInfo = { durationMs: number; sampleRate: number; channels: number; byteRate: number };
 type ScriptWithSpokenText = Omit<ProjectScript, "narrationSegments"> & {
@@ -13,25 +14,7 @@ type ScriptWithSpokenText = Omit<ProjectScript, "narrationSegments"> & {
 };
 type KokoroOutput = { projects: RenderProject[] };
 const RESULT_PREFIX = "KOKORO_RESULT:";
-// Keep three minutes as the target while allowing normal TTS timing variation.
-// The prompt targets 2:40-3:20; this guard leaves a small extra buffer so a
-// few seconds of pauses do not block an otherwise usable video.
-const MAX_VIDEO_DURATION_MS = 210_000;
 const MAX_AUTO_REVISIONS = 3;
-
-function expandBeatNarration(script: ProjectScript): Array<NarrationSegment & { spokenText: string }> {
-  return script.narrationSegments.flatMap((segment) => {
-    if (segment.scene !== "concept" || !script.conceptStoryboard?.beats.length) {
-      return [{ ...segment, spokenText: segment.spokenText ?? segment.text }];
-    }
-    return script.conceptStoryboard.beats.map((beat) => ({
-      scene: "concept" as const,
-      beatId: beat.id,
-      text: beat.text,
-      spokenText: beat.spokenText ?? beat.text,
-    }));
-  });
-}
 
 function inspectPcmWav(buffer: Buffer, filename: string): WavInfo {
   if (buffer.toString("ascii", 0, 4) !== "RIFF" || buffer.toString("ascii", 8, 12) !== "WAVE") {
@@ -56,10 +39,6 @@ function inspectPcmWav(buffer: Buffer, filename: string): WavInfo {
   }
   if (!sampleRate || !channels || !byteRate || !dataBytes) throw new Error(`无法读取 Kokoro WAV 信息：${filename}`);
   return { durationMs: Math.round((dataBytes / byteRate) * 1_000), sampleRate, channels, byteRate };
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function runKokoro(scripts: ScriptWithSpokenText[], audioDirectory: string, speed: number): Promise<RenderProject[]> {
@@ -123,11 +102,7 @@ function runKokoro(scripts: ScriptWithSpokenText[], audioDirectory: string, spee
 function prepareScripts(scripts: ProjectScript[], substitutions: Array<[string, string]>): ScriptWithSpokenText[] {
   return scripts.map((script) => ({
     ...script,
-    narrationSegments: expandBeatNarration(script).map((segment) => {
-      let spokenText = segment.spokenText ?? segment.text;
-      for (const [source, replacement] of substitutions) spokenText = spokenText.replace(new RegExp(escapeRegExp(source), "gi"), replacement);
-      return { ...segment, spokenText };
-    }),
+    narrationSegments: spokenTimeline(script, substitutions),
   }));
 }
 
@@ -166,14 +141,9 @@ export async function synthesizeScripts(scripts: ProjectScript[], audioDirectory
   if (!Number.isFinite(config.kokoroSpeed) || config.kokoroSpeed <= 0) throw new Error("KOKORO_SPEED 必须是大于 0 的数字");
   if (!Number.isFinite(config.kokoroPauseMs) || config.kokoroPauseMs < 0) throw new Error("KOKORO_PAUSE_MS 必须是非负数字");
   await mkdir(audioDirectory, { recursive: true });
+  const timing = await loadNarrationTiming();
 
-  let pronunciation: Record<string, string> = {};
-  try {
-    pronunciation = JSON.parse(await readFile(path.resolve("config", "pronunciation.json"), "utf8")) as Record<string, string>;
-  } catch (error) {
-    if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error;
-  }
-  const substitutions = Object.entries(pronunciation).sort(([a], [b]) => b.length - a.length);
+  const substitutions = timing.substitutions;
   console.log(`[节点 4] 使用 Kokoro ${config.kokoroModel}，音色 ${config.kokoroVoice}，设备 ${config.kokoroDevice}，语速 ${config.kokoroSpeed}`);
   let workingScripts = scripts.map((script) => ({ ...script }));
   const durationAdjustments: Array<{ repo: string; revision: number; beforeMs: number }> = [];
@@ -182,6 +152,7 @@ export async function synthesizeScripts(scripts: ProjectScript[], audioDirectory
 
   for (let revision = 0; revision <= MAX_AUTO_REVISIONS; revision++) {
     const durations = await inspectProjects(projects, workingScripts);
+    await recordNarrationTiming(projects, timing);
     const overlong = workingScripts.filter((script) => (durations.get(script.repo.toLowerCase()) ?? 0) > MAX_VIDEO_DURATION_MS);
     if (!overlong.length) {
       for (const script of workingScripts) {
@@ -194,14 +165,16 @@ export async function synthesizeScripts(scripts: ProjectScript[], audioDirectory
     if (revision === MAX_AUTO_REVISIONS) {
       const details = overlong.map((script) => `${script.repo} ${(durations.get(script.repo.toLowerCase())! / 1_000).toFixed(1)} 秒`).join("、");
       await writeJson(path.join(audioDirectory, "duration-adjustments.json"), { maxRevisions: MAX_AUTO_REVISIONS, maxDurationMs: MAX_VIDEO_DURATION_MS, adjustments: durationAdjustments, status: "failed", remaining: details });
-      throw new Error(`自动压缩讲稿 ${MAX_AUTO_REVISIONS} 轮后仍超过 3 分 30 秒：${details}。请在节点 3 修改讲稿后重试。`);
+      throw new Error(`自动压缩讲稿 ${MAX_AUTO_REVISIONS} 轮后仍超过 3 分 20 秒：${details}。请从节点 3 重试。`);
     }
-    console.log(`[节点 4] 发现 ${overlong.length} 个项目超过 3 分 30 秒，反馈节点 3 自动压缩讲稿（第 ${revision + 1}/${MAX_AUTO_REVISIONS} 轮）`);
+    console.log(`[节点 4] 等待讲稿压缩：${overlong.length} 个项目超过 3 分 20 秒，自动压缩（第 ${revision + 1}/${MAX_AUTO_REVISIONS} 轮）`);
     const revisedByRepo = new Map<string, ProjectScript>();
-    for (const script of overlong) {
+    for (const [scriptIndex, script] of overlong.entries()) {
       const duration = durations.get(script.repo.toLowerCase())!;
+      console.log(`[节点 3] ${scriptIndex}/${overlong.length} 正在压缩 ${script.repo}，实测 ${(duration / 1_000).toFixed(1)} 秒`);
       durationAdjustments.push({ repo: script.repo, revision: revision + 1, beforeMs: duration });
-      revisedByRepo.set(script.repo.toLowerCase(), await shortenScriptForDuration(script, duration, MAX_VIDEO_DURATION_MS));
+      revisedByRepo.set(script.repo.toLowerCase(), await shortenScriptForDuration(script, duration, MAX_VIDEO_DURATION_MS, timing));
+      console.log(`[节点 3] ${scriptIndex + 1}/${overlong.length} ${script.repo} 讲稿压缩完成`);
     }
     workingScripts = workingScripts.map((script) => revisedByRepo.get(script.repo.toLowerCase()) ?? script);
     await persistAdjustedScripts(workingScripts, audioDirectory);

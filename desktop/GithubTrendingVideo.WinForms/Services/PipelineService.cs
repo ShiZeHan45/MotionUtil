@@ -7,6 +7,7 @@ namespace GitHubTrendingVideo.Services;
 public sealed class PipelineService(RuntimePaths paths, ProcessRunner processes, EnvironmentService environment)
 {
     public event Action<int, string, int>? StepChanged;
+    public event Action<int, string>? StepActivityChanged;
     public event Action<string>? LogLine;
     public event Action<int, int>? OverallProgressChanged;
     public event Action<string>? RunIdChanged;
@@ -56,7 +57,7 @@ public sealed class PipelineService(RuntimePaths paths, ProcessRunner processes,
         // present. Keep those earlier nodes marked complete even when the
         // previous run was started from an individual node and its report did
         // not contain the earlier completion markers.
-        report.CompletedNodes = Labels.Take(startIndex).ToList();
+        report.CompletedNodes = Enumerable.Range(1, startIndex).Select(node => $"节点 {node}").ToList();
         await SaveReportAsync(reportFile, report, cancellationToken);
 
         try
@@ -66,6 +67,9 @@ public sealed class PipelineService(RuntimePaths paths, ProcessRunner processes,
                 cancellationToken.ThrowIfCancellationRequested();
                 _activeIndex = index;
                 _activeStartedAt = DateTimeOffset.UtcNow;
+                _compressingScript = false;
+                _modelActivity = "生成讲稿";
+                _modelRetry = "";
                 StepChanged?.Invoke(index, "运行中", 2);
                 LogLine?.Invoke($"\n── 节点 {index + 1}/5 · {Labels[index]} ──");
                 var node = environment.NodeExecutable ?? throw new InvalidOperationException("找不到 Node.js。请先到“环境与下载”安装运行环境。");
@@ -73,31 +77,38 @@ public sealed class PipelineService(RuntimePaths paths, ProcessRunner processes,
                 var cliEntry = Path.Combine(projectDirectory, "src", "cli.ts");
                 var env = CreateProcessEnvironment(settings, projectDirectory, outputDirectory);
 
-                var nestedNode3Activity = false;
                 await processes.RunCheckedAsync(node, [cliRunner, cliEntry, Commands[index], "--run-id", runId], projectDirectory, env,
                     line =>
                     {
                         LogLine?.Invoke(line);
-                        if (index == 3 && line.StartsWith("[节点 3]", StringComparison.Ordinal))
+                        if (line.StartsWith("[节点 3]", StringComparison.Ordinal)) UpdateModelActivity(line);
+                        if (index == 3 && !_compressingScript &&
+                            (line.StartsWith("[节点 4] 等待讲稿压缩", StringComparison.Ordinal) || line.StartsWith("[节点 3]", StringComparison.Ordinal)))
                         {
-                            nestedNode3Activity = true;
-                            StepChanged?.Invoke(3, "等待中", 50);
-                            StepChanged?.Invoke(2, "运行中", 50);
+                            _compressingScript = true;
+                            StepChanged?.Invoke(3, "等待讲稿压缩", 0);
+                            StepChanged?.Invoke(2, "运行中", 2);
+                            OverallProgressChanged?.Invoke(2, Commands.Length);
                         }
-                        if (index == 3 && nestedNode3Activity && line.Contains("节点 3 修订完成", StringComparison.Ordinal))
+                        if (index == 3 && _compressingScript && line.StartsWith("[节点 4] 节点 3 修订完成", StringComparison.Ordinal))
                         {
+                            _compressingScript = false;
                             StepChanged?.Invoke(2, "已完成", 100);
-                            StepChanged?.Invoke(3, "运行中", 50);
+                            StepChanged?.Invoke(3, "运行中", 2);
+                            OverallProgressChanged?.Invoke(3, Commands.Length);
+                            return;
                         }
-                        var match = System.Text.RegularExpressions.Regex.Match(line, @"(?:\[节点 \d\] )?(\d+)/(\d+)");
-                        if (match.Success && int.TryParse(match.Groups[1].Value, out var current) && int.TryParse(match.Groups[2].Value, out var total))
-                            StepChanged?.Invoke(index, "运行中", Math.Clamp((int)(current * 100.0 / Math.Max(total, 1)), 2, 95));
+                        var progressIndex = _compressingScript ? 2 : index;
+                        var match = System.Text.RegularExpressions.Regex.Match(line, @"^\[节点 (\d)\] (\d+)/(\d+)\s");
+                        if (match.Success && int.TryParse(match.Groups[1].Value, out var loggedNode) && loggedNode == progressIndex + 1 &&
+                            int.TryParse(match.Groups[2].Value, out var current) && int.TryParse(match.Groups[3].Value, out var total))
+                            StepChanged?.Invoke(progressIndex, "运行中", Math.Clamp((int)(current * 100.0 / Math.Max(total, 1)), 2, 95));
+                        if (_compressingScript) return;
                         var percent = System.Text.RegularExpressions.Regex.Match(line, @"(?:构建|渲染).*?(\d{1,3})%");
                         if (percent.Success && int.TryParse(percent.Groups[1].Value, out var value))
                             StepChanged?.Invoke(index, "运行中", Math.Clamp(value, 2, 98));
                     }, cancellationToken);
 
-                if (index == 3 && nestedNode3Activity) StepChanged?.Invoke(2, "已完成", 100);
                 var label = $"节点 {index + 1}";
                 if (!report.CompletedNodes.Contains(label)) report.CompletedNodes.Add(label);
                 report.Status = "running";
@@ -133,7 +144,7 @@ public sealed class PipelineService(RuntimePaths paths, ProcessRunner processes,
             // overlong script. Expose that failure as Node 3 so the desktop
             // continuation starts at the model step instead of jumping back
             // into the audio step with the same stale script.
-            if (failedIndex == 3 && error.Message.Contains("节点 3", StringComparison.Ordinal)) failedIndex = 2;
+            if (failedIndex == 3 && (_compressingScript || error.Message.Contains("自动压缩讲稿", StringComparison.Ordinal))) failedIndex = 2;
             report.Status = "failed";
             report.FailedAt = $"节点 {failedIndex + 1}";
             report.Error = error.Message;
@@ -147,10 +158,31 @@ public sealed class PipelineService(RuntimePaths paths, ProcessRunner processes,
     }
 
     public static string[] StepLabels => Labels;
+    public static bool IsStepCompleted(PipelineReport report, int index) =>
+        report.CompletedNodes?.Any(label => label == $"节点 {index + 1}" || label == Labels[index]) == true;
 
     private int _activeIndex;
+    private bool _compressingScript;
+    private string _modelActivity = "生成讲稿";
+    private string _modelRetry = "";
     private DateTimeOffset? _activeStartedAt;
     private int FindActiveStepIndex() => _activeIndex;
+
+    private void UpdateModelActivity(string line)
+    {
+        if (line.Contains("讲稿格式需要修复", StringComparison.Ordinal)) _modelActivity = "修复讲稿";
+        else if (line.Contains("自动压缩", StringComparison.Ordinal) || line.Contains("正在压缩", StringComparison.Ordinal)) _modelActivity = "压缩讲稿";
+        else if (line.StartsWith("[节点 3] 正在生成 ", StringComparison.Ordinal)) _modelActivity = "生成讲稿";
+        if (line.StartsWith("[节点 3] 请求接口：", StringComparison.Ordinal)) _modelRetry = "";
+        var retry = System.Text.RegularExpressions.Regex.Match(line, @"网络波动，正在重试（第 (\d+)/(\d+) 次）");
+        var received = System.Text.RegularExpressions.Regex.Match(line, @"已接收 (\d+) 字符");
+        if (retry.Success) _modelRetry = $"网络重试 {retry.Groups[1].Value}/{retry.Groups[2].Value}";
+        var phase = string.IsNullOrEmpty(_modelRetry) ? _modelActivity : _modelRetry;
+        var activity = received.Success ? $"{phase} · 已接收 {received.Groups[1].Value} 字符"
+            : line.Contains("已等待", StringComparison.Ordinal) ? $"{phase} · 等待模型"
+            : phase;
+        StepActivityChanged?.Invoke(2, activity);
+    }
 
     private void SaveActiveDuration(PipelineReport report)
     {
@@ -165,6 +197,7 @@ public sealed class PipelineService(RuntimePaths paths, ProcessRunner processes,
         {
             ["OPENAI_BASE_URL"] = AppSettings.ResolveModelBaseUrl(settings.OpenAiBaseUrl, settings.OpenAiApiKey),
             ["OPENAI_MODEL"] = settings.OpenAiModel.Trim(),
+            ["OPENAI_REASONING_EFFORT"] = AppSettings.NormalizeReasoningEffort(settings.OpenAiReasoningEffort),
             ["OPENAI_API_KEY"] = settings.OpenAiApiKey,
             ["GITHUB_TOKEN"] = settings.GithubToken,
             ["GITHUB_TOP_N"] = Math.Clamp(settings.TrendingTopN, 1, 20).ToString(CultureInfo.InvariantCulture),
@@ -174,6 +207,7 @@ public sealed class PipelineService(RuntimePaths paths, ProcessRunner processes,
             ["KOKORO_SPEED"] = settings.KokoroSpeed.ToString(CultureInfo.InvariantCulture),
             ["KOKORO_PYTHON"] = File.Exists(python) ? python : "python",
             ["KOKORO_CACHE_DIR"] = Path.Combine(projectDirectory, ".cache", "kokoro"),
+            ["VIDEO_BACKGROUND_PATH"] = settings.VideoBackgroundPath,
             ["GITHUB_TRENDING_OUTPUT_DIR"] = outputDirectory,
             ["PYTHONIOENCODING"] = "utf-8",
             ["HF_HUB_DISABLE_XET"] = "1",

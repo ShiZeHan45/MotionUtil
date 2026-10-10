@@ -29,6 +29,7 @@ public sealed class MainForm : Form
     private readonly Dictionary<string, EnvironmentCard> _environmentCards = [];
     private readonly Dictionary<string, TextBox> _settingBoxes = [];
     private readonly ComboBox _deviceBox = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 150 };
+    private readonly ComboBox _reasoningBox = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 150 };
     private readonly ComboBox _voiceBox = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 210, IntegralHeight = false, MaxDropDownItems = 18 };
     private readonly NumericUpDown _speedBox = new() { Minimum = 0.1m, Maximum = 3m, DecimalPlaces = 2, Increment = 0.05m, Width = 150 };
     private readonly NumericUpDown _topNBox = new() { Minimum = 1, Maximum = 20, DecimalPlaces = 0, Increment = 1, Width = 150 };
@@ -47,6 +48,8 @@ public sealed class MainForm : Form
     private readonly DateTimeOffset?[] _nodeStartedAt = new DateTimeOffset?[5];
     private readonly Dictionary<int, double> _nodeDurationsSeconds = [];
     private readonly bool[] _nodeCompleted = new bool[5];
+    private readonly string[] _nodeStates = Enumerable.Repeat("等待中", 5).ToArray();
+    private readonly string[] _nodeActivities = new string[5];
     private int _activeNodeIndex = -1;
     private int _activeNodeProgress;
     private string _activeNodeStatus = "等待中";
@@ -197,6 +200,7 @@ public sealed class MainForm : Form
         AddSetting(table, "视频输出目录", "output", _settings.OutputDirectory, "留空则使用项目目录下的 output", browse: true);
         AddSetting(table, "模型服务地址", "baseUrl", _settings.OpenAiBaseUrl, "OpenAI 兼容接口，例如 https://api.buzzai.cc/v1");
         AddSetting(table, "模型名称", "model", _settings.OpenAiModel, "生成讲稿使用的模型名");
+        AddReasoningEffortSetting(table);
         AddSetting(table, "模型 API Key", "apiKey", _settings.OpenAiApiKey, "必填；保存时加密", password: true);
         AddSetting(table, "GitHub Token", "githubToken", _settings.GithubToken, "可选，用于降低公开 API 限流", password: true);
         var topNLabel = new Label { Text = "周榜项目数量", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(0, 12, 12, 12) };
@@ -205,6 +209,7 @@ public sealed class MainForm : Form
         table.RowStyles.Add(new RowStyle(SizeType.AutoSize)); table.Controls.Add(topNLabel, 0, table.RowCount); table.Controls.Add(_topNBox, 1, table.RowCount); table.Controls.Add(topNHelp, 2, table.RowCount); table.RowCount++;
         AddSetting(table, "Kokoro 模型", "kokoroModel", _settings.KokoroModel, "默认 hexgrad/Kokoro-82M-v1.1-zh");
         AddVoiceSetting(table);
+        AddSetting(table, "视频动态背景", "background", _settings.VideoBackgroundPath, "支持 MP4 / GIF；留空使用纯白底，下次渲染生效", browse: true);
         AddSetting(table, "Remotion 浏览器路径", "browser", _settings.RemotionBrowserExecutable, "留空则使用软件下载的 Headless Chrome", browse: true);
         var deviceLabel = new Label { Text = "Kokoro 设备", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(0, 12, 12, 12) };
         _deviceBox.Items.AddRange(["cpu", "cuda"]); _deviceBox.SelectedItem = _settings.KokoroDevice; if (_deviceBox.SelectedIndex < 0) _deviceBox.SelectedIndex = 0; _deviceBox.Margin = new Padding(0, 8, 12, 8);
@@ -236,7 +241,7 @@ public sealed class MainForm : Form
         table.Controls.Add(caption, 0, row); table.Controls.Add(box, 1, row); table.Controls.Add(helpLabel, 2, row);
         if (browse)
         {
-            var browseButton = Button("选择", Color.FromArgb(100, 116, 139), 70, 26); browseButton.Margin = new Padding(8, 7, 0, 0); browseButton.Click += (_, _) => BrowseInto(box, key == "browser" ? "file" : "folder");
+            var browseButton = Button("选择", Color.FromArgb(100, 116, 139), 70, 26); browseButton.Margin = new Padding(8, 7, 0, 0); browseButton.Click += (_, _) => BrowseInto(box, key switch { "browser" => "browser-file", "background" => "background-file", _ => "folder" });
             table.Controls.Remove(helpLabel); helpLabel.MaximumSize = new Size(138, 0); var flow = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = false, WrapContents = false, FlowDirection = FlowDirection.LeftToRight }; flow.Controls.Add(helpLabel); flow.Controls.Add(browseButton); table.Controls.Add(flow, 2, row);
         }
         table.RowCount++;
@@ -277,6 +282,29 @@ public sealed class MainForm : Form
             modelBox.TextChanged += (_, _) => { StopVoicePreviewWarmup(); RefreshVoiceChoices(); };
         table.RowCount++;
     }
+
+    private void AddReasoningEffortSetting(TableLayoutPanel table)
+    {
+        var row = table.RowCount;
+        table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        var caption = new Label { Text = "模型思考强度", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(0, 12, 12, 12) };
+        _reasoningBox.Items.AddRange(["自动", "低", "中", "高", "极高"]);
+        _reasoningBox.SelectedItem = ReasoningEffortLabel(_settings.OpenAiReasoningEffort);
+        if (_reasoningBox.SelectedIndex < 0) _reasoningBox.SelectedIndex = 0;
+        _reasoningBox.Margin = new Padding(0, 8, 12, 8);
+        var help = new Label { Text = "自动不传参数；选择档位后发送对应 reasoning_effort", AutoSize = true, ForeColor = Color.FromArgb(100, 116, 139), Margin = new Padding(0, 12, 0, 12), MaximumSize = new Size(300, 0) };
+        table.Controls.Add(caption, 0, row); table.Controls.Add(_reasoningBox, 1, row); table.Controls.Add(help, 2, row);
+        table.RowCount++;
+    }
+
+    private static string ReasoningEffortLabel(string? value) => AppSettings.NormalizeReasoningEffort(value) switch
+    {
+        "low" => "低",
+        "medium" => "中",
+        "high" => "高",
+        "xhigh" => "极高",
+        _ => "自动",
+    };
 
     private void RefreshVoiceChoices()
     {
@@ -595,6 +623,7 @@ public sealed class MainForm : Form
             if (_cards.TryGetValue(index, out var card)) card.SetState(status, progress);
             if (index is >= 0 and < 5)
             {
+                _nodeStates[index] = status;
                 if (status == "运行中")
                 {
                     if (_activeNodeIndex != index) _nodeStartedAt[index] = DateTimeOffset.UtcNow;
@@ -608,9 +637,13 @@ public sealed class MainForm : Form
                     if (_nodeStartedAt[index].HasValue) _nodeDurationsSeconds[index] = Math.Max(0.1, (DateTimeOffset.UtcNow - _nodeStartedAt[index]!.Value).TotalSeconds);
                     _nodeCompleted[index] = true;
                     _completedNodeCount = Math.Max(_completedNodeCount, index + 1);
-                    _activeNodeProgress = 100;
-                    _activeNodeStatus = status;
+                    if (_activeNodeIndex == index)
+                    {
+                        _activeNodeProgress = 100;
+                        _activeNodeStatus = status;
+                    }
                 }
+                else if (status == "等待讲稿压缩") _nodeCompleted[index] = false;
                 else if (status == "失败")
                 {
                     _activeNodeIndex = index;
@@ -622,11 +655,12 @@ public sealed class MainForm : Form
             UpdateEtaDisplay();
         });
         _pipeline.OverallProgressChanged += (done, total) => Ui(() => { _overallProgress.Maximum = total; _overallProgress.Value = Math.Min(done, total); _completedNodeCount = done; _overallLabel.Text = $"整体进度 {done}/{total}"; UpdateEtaDisplay(); });
+        _pipeline.StepActivityChanged += (index, activity) => Ui(() => { _nodeActivities[index] = activity; UpdateEtaDisplay(); });
         _pipeline.LogLine += line => Ui(() => AppendLog(line));
         _pipeline.RunIdChanged += runId => Ui(() => { _runLabel.Text = $"正在运行 · {runId}"; _runLabel.ForeColor = Color.FromArgb(37, 99, 235); UpdateEtaDisplay(); });
     }
 
-    private async Task StartRunAsync(int startIndex, bool offerNode3Recovery = true)
+    private async Task StartRunAsync(int startIndex)
     {
         if (_busy) { MessageBox.Show("已有运行正在进行，请先停止或等待完成。", "正在运行", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
         _tabs.SelectedIndex = 0;
@@ -636,7 +670,6 @@ public sealed class MainForm : Form
         if (string.IsNullOrWhiteSpace(_settings.OpenAiModel) || string.IsNullOrWhiteSpace(_settings.OpenAiApiKey)) { MessageBox.Show("节点 3 需要模型服务地址、模型名称和 API Key。请先完成设置。", "缺少讲稿模型设置", MessageBoxButtons.OK, MessageBoxIcon.Warning); _tabs.SelectedIndex = 2; return; }
         BeginProgressTracking(startIndex);
         _busy = true; _runCancellation = new CancellationTokenSource(); _etaTimer.Start(); SetRunButtonsEnabled(false); AppendLog($"开始从节点 {startIndex + 1} 运行，项目目录：{project}");
-        var retryFromNode3 = false;
         try
         {
             await _pipeline.RunFromStepAsync(startIndex, _settings, project, _runCancellation.Token);
@@ -647,22 +680,9 @@ public sealed class MainForm : Form
         catch (Exception error)
         {
             _runLabel.Text = "运行失败 · 可从失败节点重试"; _runLabel.ForeColor = Color.FromArgb(220, 38, 38);
-            var needsNode3Recovery = offerNode3Recovery && startIndex != 2 &&
-                (error.Message.Contains("节点 3", StringComparison.Ordinal) || error.Message.Contains("自动压缩讲稿", StringComparison.Ordinal));
-            if (needsNode3Recovery)
-            {
-                var choice = MessageBox.Show(
-                    "节点 4 的超长讲稿需要重新生成。点击“确定”后将从节点 3 重新生成讲稿，并自动继续节点 4。",
-                    "从节点 3 重试",
-                    MessageBoxButtons.OKCancel,
-                    MessageBoxIcon.Warning);
-                retryFromNode3 = choice == DialogResult.OK;
-                if (!retryFromNode3) MessageBox.Show(error.Message, "运行失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-            else MessageBox.Show(error.Message, "运行失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            MessageBox.Show(error.Message, "运行失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally { _busy = false; _etaTimer.Stop(); _runCancellation?.Dispose(); _runCancellation = null; SetRunButtonsEnabled(true); await RefreshRunStateAsync(); }
-        if (retryFromNode3) await StartRunAsync(2, false);
     }
 
     private async Task ResumeRunAsync()
@@ -685,7 +705,7 @@ public sealed class MainForm : Form
             foreach (var (label, seconds) in report.NodeDurationsSeconds ?? [])
                 if (label.StartsWith("节点 ") && int.TryParse(label[3..], out var node) && node is >= 1 and <= 5) _nodeDurationsSeconds[node - 1] = Math.Max(0.1, seconds);
             var failed = report.FailedAt is not null && int.TryParse(report.FailedAt.Replace("节点 ", "", StringComparison.Ordinal), out var failedNode) ? failedNode - 1 : -1;
-            var startIndex = failed >= 0 ? failed : Enumerable.Range(0, 5).FirstOrDefault(index => !report.CompletedNodes.Contains($"节点 {index + 1}"), 5);
+            var startIndex = failed >= 0 ? failed : Enumerable.Range(0, 5).FirstOrDefault(index => !PipelineService.IsStepCompleted(report, index), 5);
             if (startIndex >= 5) { MessageBox.Show("最近一期已经完成全部节点。", "无需继续", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
             await StartRunAsync(startIndex);
         }
@@ -694,7 +714,6 @@ public sealed class MainForm : Form
 
     private void BeginProgressTracking(int startIndex)
     {
-        if (startIndex == 0) _nodeDurationsSeconds.Clear();
         _activeNodeIndex = -1;
         _activeNodeProgress = 0;
         _activeNodeStatus = "等待中";
@@ -702,10 +721,12 @@ public sealed class MainForm : Form
         for (var index = 0; index < 5; index++)
         {
             _nodeStartedAt[index] = null;
+            _nodeActivities[index] = "";
             _nodeCompleted[index] = index < startIndex;
+            _nodeStates[index] = index < startIndex ? "已完成" : "等待中";
             if (_cards.TryGetValue(index, out var card))
             {
-                card.SetState(index < startIndex ? "已完成" : "等待中", index < startIndex ? 100 : 0);
+                card.SetState(_nodeStates[index], index < startIndex ? 100 : 0);
                 card.SetEta(index < startIndex ? "已完成" : "等待中");
             }
         }
@@ -721,7 +742,14 @@ public sealed class MainForm : Form
         {
             if (!_cards.TryGetValue(index, out var card)) continue;
             if (_nodeCompleted[index]) card.SetEta("已完成");
-            else if (_busy && index == _activeNodeIndex && _activeNodeStatus == "运行中") card.SetEta($"预计剩余 {FormatRemaining(EstimateNodeRemaining(index))}");
+            else if (_nodeStates[index] == "等待讲稿压缩") card.SetEta("等待讲稿压缩");
+            else if (_busy && index == _activeNodeIndex && _activeNodeStatus == "运行中")
+            {
+                var remaining = EstimateNodeRemaining(index);
+                var elapsed = _nodeStartedAt[index].HasValue ? DateTimeOffset.UtcNow - _nodeStartedAt[index]!.Value : TimeSpan.Zero;
+                var timing = remaining.HasValue ? $"预计剩余 {FormatRemaining(remaining)}" : $"已用 {FormatRemaining(elapsed)}";
+                card.SetEta(string.IsNullOrEmpty(_nodeActivities[index]) ? timing : $"{timing} · {_nodeActivities[index]}");
+            }
             else if (_activeNodeStatus == "失败" && index == _activeNodeIndex) card.SetEta("未完成");
             else card.SetEta("等待中");
         }
@@ -731,14 +759,22 @@ public sealed class MainForm : Form
             _overallEtaLabel.Text = "预计剩余 已完成";
             return;
         }
-        _overallEtaLabel.Text = $"预计剩余 {FormatRemaining(EstimateOverallRemaining())}";
+        if (!_busy)
+        {
+            _overallEtaLabel.Text = _nodeStates.Contains("失败") ? "已停止，等待重试" : "等待开始";
+            return;
+        }
+        var overallRemaining = EstimateOverallRemaining();
+        _overallEtaLabel.Text = _busy && _activeNodeIndex >= 0 && !overallRemaining.HasValue
+            ? string.IsNullOrEmpty(_nodeActivities[_activeNodeIndex]) ? $"节点 {_activeNodeIndex + 1} 处理中" : _nodeActivities[_activeNodeIndex].Split('·')[0].Trim()
+            : $"预计剩余 {FormatRemaining(overallRemaining)}";
     }
 
     private TimeSpan? EstimateNodeRemaining(int index)
     {
         if (!_nodeStartedAt[index].HasValue) return null;
         var elapsed = DateTimeOffset.UtcNow - _nodeStartedAt[index]!.Value;
-        if (_nodeDurationsSeconds.TryGetValue(index, out var knownSeconds)) return TimeSpan.FromSeconds(Math.Max(0, knownSeconds - elapsed.TotalSeconds));
+        if (_nodeDurationsSeconds.TryGetValue(index, out var knownSeconds) && knownSeconds > elapsed.TotalSeconds) return TimeSpan.FromSeconds(knownSeconds - elapsed.TotalSeconds);
         if (_activeNodeProgress <= 2) return null;
         var totalSeconds = elapsed.TotalSeconds * 100 / _activeNodeProgress;
         return TimeSpan.FromSeconds(Math.Max(0, totalSeconds - elapsed.TotalSeconds));
@@ -831,21 +867,22 @@ public sealed class MainForm : Form
                 ? failedNode - 1
                 : -1;
             _completedNodeCount = failed >= 0
-                ? report.CompletedNodes.Count(label => int.TryParse(label.Replace("节点 ", "", StringComparison.Ordinal), out var node) && node - 1 < failed)
-                : report.CompletedNodes.Count;
+                ? Enumerable.Range(0, failed).Count(index => PipelineService.IsStepCompleted(report, index))
+                : Enumerable.Range(0, 5).Count(index => PipelineService.IsStepCompleted(report, index));
             _activeNodeIndex = -1;
             for (var index = 0; index < 5; index++)
             {
                 _nodeCompleted[index] = failed >= 0
-                    ? index < failed && report.CompletedNodes.Contains($"节点 {index + 1}")
-                    : report.CompletedNodes.Contains($"节点 {index + 1}");
+                    ? index < failed && PipelineService.IsStepCompleted(report, index)
+                    : PipelineService.IsStepCompleted(report, index);
                 var isFailed = failed == index;
-                _cards[index].SetState(_nodeCompleted[index] ? "已完成" : isFailed ? "失败" : "等待中", _nodeCompleted[index] ? 100 : 0);
+                _nodeStates[index] = _nodeCompleted[index] ? "已完成" : isFailed ? "失败" : "等待中";
+                _cards[index].SetState(_nodeStates[index], _nodeCompleted[index] ? 100 : 0);
                 _cards[index].SetEta(_nodeCompleted[index] ? "已完成" : isFailed ? "未完成" : "等待中");
             }
             _runLabel.Text = report.Status == "nodes-1-to-5-complete" ? $"最近运行已完成 · {runId}" : report.Status == "failed" ? $"最近运行失败 · {report.FailedAt}" : $"最近运行 · {runId}";
             _overallProgress.Maximum = 5; _overallProgress.Value = Math.Clamp(_completedNodeCount, 0, 5); _overallLabel.Text = $"整体进度 {_completedNodeCount}/5";
-            _overallEtaLabel.Text = report.Status == "nodes-1-to-5-complete" ? "预计剩余 已完成" : "预计剩余 正在估算…";
+            _overallEtaLabel.Text = report.Status == "nodes-1-to-5-complete" ? "预计剩余 已完成" : report.Status == "failed" ? "已停止，等待重试" : "等待继续";
             if (_resumeButton is not null) _resumeButton.Enabled = (report.Status == "failed" && report.FailedAt is not null) || (report.Status != "nodes-1-to-5-complete" && report.CompletedNodes.Count < 5);
         }
         catch { }
@@ -907,6 +944,7 @@ public sealed class MainForm : Form
         _settings.OutputDirectory = _settingBoxes.GetValueOrDefault("output")?.Text.Trim() ?? _settings.OutputDirectory;
         _settings.OpenAiBaseUrl = _settingBoxes.GetValueOrDefault("baseUrl")?.Text.Trim() ?? _settings.OpenAiBaseUrl;
         _settings.OpenAiModel = _settingBoxes.GetValueOrDefault("model")?.Text.Trim() ?? _settings.OpenAiModel;
+        _settings.OpenAiReasoningEffort = _reasoningBox.SelectedItem?.ToString() switch { "低" => "low", "中" => "medium", "高" => "high", "极高" => "xhigh", _ => "" };
         _settings.OpenAiApiKey = _settingBoxes.GetValueOrDefault("apiKey")?.Text ?? _settings.OpenAiApiKey;
         _settings.OpenAiBaseUrl = AppSettings.ResolveModelBaseUrl(_settings.OpenAiBaseUrl, _settings.OpenAiApiKey);
         if (_settingBoxes.TryGetValue("baseUrl", out var baseUrlBox)) baseUrlBox.Text = _settings.OpenAiBaseUrl;
@@ -915,6 +953,7 @@ public sealed class MainForm : Form
         _settings.KokoroModel = _settingBoxes.GetValueOrDefault("kokoroModel")?.Text.Trim() ?? _settings.KokoroModel;
         _settings.KokoroVoice = _voiceBox.SelectedItem?.ToString() ?? _settings.KokoroVoice;
         _settings.RemotionBrowserExecutable = _settingBoxes.GetValueOrDefault("browser")?.Text.Trim() ?? _settings.RemotionBrowserExecutable;
+        _settings.VideoBackgroundPath = _settingBoxes.GetValueOrDefault("background")?.Text.Trim() ?? _settings.VideoBackgroundPath;
         _settings.KokoroDevice = _deviceBox.SelectedItem?.ToString() ?? "cpu"; _settings.KokoroSpeed = _speedBox.Value;
         _cards.GetValueOrDefault(1)?.SetDescription($"获取前 {_settings.TrendingTopN} 个仓库的 GitHub API 信息和 README。");
         try { _settingsStore.Save(_settings); if (showMessage) MessageBox.Show("设置已保存。", "设置", MessageBoxButtons.OK, MessageBoxIcon.Information); _projectLabel.Text = ProjectDisplay(); }
@@ -923,7 +962,8 @@ public sealed class MainForm : Form
 
     private void BrowseInto(TextBox box, string mode)
     {
-        if (mode == "file") { using var dialog = new OpenFileDialog { Filter = "可执行文件|*.exe|所有文件|*.*", Title = "选择 Remotion 浏览器可执行文件" }; if (dialog.ShowDialog(this) == DialogResult.OK) box.Text = dialog.FileName; return; }
+        if (mode == "browser-file") { using var dialog = new OpenFileDialog { Filter = "可执行文件|*.exe|所有文件|*.*", Title = "选择 Remotion 浏览器可执行文件" }; if (dialog.ShowDialog(this) == DialogResult.OK) box.Text = dialog.FileName; return; }
+        if (mode == "background-file") { using var dialog = new OpenFileDialog { Filter = "动态背景|*.mp4;*.gif|MP4 视频|*.mp4;*.mov;*.webm;*.m4v|GIF 动画|*.gif|图片背景|*.png;*.jpg;*.jpeg;*.webp;*.avif|所有文件|*.*", Title = "选择视频或 GIF 背景素材", CheckFileExists = true }; if (dialog.ShowDialog(this) == DialogResult.OK) box.Text = dialog.FileName; return; }
         using var folder = new FolderBrowserDialog { Description = "选择目录" }; if (folder.ShowDialog(this) == DialogResult.OK) box.Text = folder.SelectedPath;
     }
 
@@ -1008,7 +1048,7 @@ public sealed class MainForm : Form
             _status.Width = textWidth;
             _description.Width = textWidth; _progress.Width = textWidth; _eta.Width = textWidth;
         }
-        public void SetState(string state, int progress) { _status.Text = _status.Text.Split('·')[0].Trim() + " · " + state; _status.ForeColor = state switch { "已完成" => Color.FromArgb(22, 163, 74), "失败" => Color.FromArgb(220, 38, 38), "运行中" => Color.FromArgb(37, 99, 235), _ => Color.FromArgb(100, 116, 139) }; _progress.Value = Math.Clamp(progress, 0, 100); }
+        public void SetState(string state, int progress) { _status.Text = _status.Text.Split('·')[0].Trim() + " · " + state; _status.ForeColor = state switch { "已完成" => Color.FromArgb(22, 163, 74), "失败" => Color.FromArgb(220, 38, 38), "运行中" => Color.FromArgb(37, 99, 235), _ => Color.FromArgb(100, 116, 139) }; _progress.Visible = state != "等待讲稿压缩"; var style = state == "运行中" && progress <= 2 ? ProgressBarStyle.Marquee : ProgressBarStyle.Continuous; if (_progress.Style != style) _progress.Style = style; _progress.Value = state is "运行中" or "已完成" ? Math.Clamp(progress, 0, 100) : 0; }
         public void SetEta(string text) => _eta.Text = text;
         public void SetDescription(string text) => _description.Text = text;
         public void SetRunEnabled(bool enabled) => _run.Enabled = enabled;

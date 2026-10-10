@@ -13,6 +13,7 @@ public sealed class AppSettings
     public string OutputDirectory { get; set; } = "";
     public string OpenAiBaseUrl { get; set; } = BuzzBaseUrl;
     public string OpenAiModel { get; set; } = "";
+    public string OpenAiReasoningEffort { get; set; } = "";
     public string OpenAiApiKey { get; set; } = "";
     public string GithubToken { get; set; } = "";
     public int TrendingTopN { get; set; } = 5;
@@ -21,6 +22,16 @@ public sealed class AppSettings
     public string KokoroDevice { get; set; } = "cpu";
     public decimal KokoroSpeed { get; set; } = 1.0m;
     public string RemotionBrowserExecutable { get; set; } = "";
+    public string VideoBackgroundPath { get; set; } = "";
+
+    public static string NormalizeReasoningEffort(string? value) => value?.Trim().ToLowerInvariant() switch
+    {
+        "low" => "low",
+        "medium" => "medium",
+        "high" => "high",
+        "xhigh" => "xhigh",
+        _ => "",
+    };
 }
 
 public sealed class PipelineReport

@@ -16,6 +16,7 @@ public sealed class SettingsStore(RuntimePaths paths)
         public string OutputDirectory { get; set; } = "";
         public string OpenAiBaseUrl { get; set; } = AppSettings.BuzzBaseUrl;
         public string OpenAiModel { get; set; } = "";
+        public string OpenAiReasoningEffort { get; set; } = "";
         public string OpenAiApiKey { get; set; } = "";
         public string GithubToken { get; set; } = "";
         public int TrendingTopN { get; set; } = 5;
@@ -24,6 +25,7 @@ public sealed class SettingsStore(RuntimePaths paths)
         public string KokoroDevice { get; set; } = "cpu";
         public decimal KokoroSpeed { get; set; } = 1.0m;
         public string RemotionBrowserExecutable { get; set; } = "";
+        public string VideoBackgroundPath { get; set; } = "";
     }
 
     public AppSettings Load()
@@ -39,6 +41,7 @@ public sealed class SettingsStore(RuntimePaths paths)
                 OutputDirectory = stored.OutputDirectory,
                 OpenAiBaseUrl = AppSettings.ResolveModelBaseUrl(stored.OpenAiBaseUrl, apiKey),
                 OpenAiModel = stored.OpenAiModel,
+                OpenAiReasoningEffort = AppSettings.NormalizeReasoningEffort(stored.OpenAiReasoningEffort),
                 OpenAiApiKey = apiKey,
                 GithubToken = TryUnprotect(stored.GithubToken),
                 TrendingTopN = Math.Clamp(stored.TrendingTopN, 1, 20),
@@ -47,6 +50,7 @@ public sealed class SettingsStore(RuntimePaths paths)
                 KokoroDevice = stored.KokoroDevice,
                 KokoroSpeed = stored.KokoroSpeed > 0 ? stored.KokoroSpeed : 1.0m,
                 RemotionBrowserExecutable = stored.RemotionBrowserExecutable,
+                VideoBackgroundPath = stored.VideoBackgroundPath,
             };
             if (!string.Equals(stored.OpenAiBaseUrl, settings.OpenAiBaseUrl, StringComparison.Ordinal))
             {
@@ -69,6 +73,7 @@ public sealed class SettingsStore(RuntimePaths paths)
             OutputDirectory = settings.OutputDirectory,
             OpenAiBaseUrl = AppSettings.ResolveModelBaseUrl(settings.OpenAiBaseUrl, settings.OpenAiApiKey),
             OpenAiModel = settings.OpenAiModel.Trim(),
+            OpenAiReasoningEffort = AppSettings.NormalizeReasoningEffort(settings.OpenAiReasoningEffort),
             OpenAiApiKey = Protect(settings.OpenAiApiKey),
             GithubToken = Protect(settings.GithubToken),
             TrendingTopN = Math.Clamp(settings.TrendingTopN, 1, 20),
@@ -77,6 +82,7 @@ public sealed class SettingsStore(RuntimePaths paths)
             KokoroDevice = settings.KokoroDevice,
             KokoroSpeed = settings.KokoroSpeed,
             RemotionBrowserExecutable = settings.RemotionBrowserExecutable.Trim(),
+            VideoBackgroundPath = settings.VideoBackgroundPath.Trim(),
         };
         SaveStoredSettings(stored);
     }

@@ -6,6 +6,10 @@ const apiKey = process.env.OPENAI_API_KEY?.trim();
 const configuredBaseUrl = process.env.OPENAI_BASE_URL?.trim().replace(/\/+$/, "") || buzzBaseUrl;
 // A Buzz key must stay on the service the user selected, including after loading old settings.
 const modelBaseUrl = apiKey?.startsWith("sk-buzz-") ? buzzBaseUrl : configuredBaseUrl;
+const configuredReasoningEffort = process.env.OPENAI_REASONING_EFFORT?.trim().toLowerCase();
+const reasoningEffort = configuredReasoningEffort === "low" || configuredReasoningEffort === "medium" || configuredReasoningEffort === "high" || configuredReasoningEffort === "xhigh"
+  ? configuredReasoningEffort
+  : undefined;
 
 export const config = {
   githubToken: process.env.GITHUB_TOKEN,
@@ -14,6 +18,7 @@ export const config = {
   openAiBaseUrl: modelBaseUrl,
   openAiApiKey: apiKey,
   openAiModel: process.env.OPENAI_MODEL?.trim(),
+  openAiReasoningEffort: reasoningEffort,
   kokoroPython: process.env.KOKORO_PYTHON ?? "python",
   kokoroModel: process.env.KOKORO_MODEL ?? "hexgrad/Kokoro-82M-v1.1-zh",
   kokoroVoice: process.env.KOKORO_VOICE ?? "zf_001",
@@ -23,5 +28,6 @@ export const config = {
   kokoroCacheDir: path.resolve(process.env.KOKORO_CACHE_DIR ?? ".cache/kokoro"),
   ffmpegPath: process.env.FFMPEG_PATH ?? "ffmpeg",
   ffprobePath: process.env.FFPROBE_PATH ?? "ffprobe",
+  videoBackgroundPath: process.env.VIDEO_BACKGROUND_PATH?.trim() || "",
   remotionBrowserExecutable: process.env.REMOTION_BROWSER_EXECUTABLE,
 };

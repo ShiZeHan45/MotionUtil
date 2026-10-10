@@ -10,6 +10,22 @@ type CompletionChunk = {
   }>;
 };
 
+type ResponsesResult = {
+  output_text?: string;
+  output?: Array<{ type?: string; role?: string; content?: Array<{ type?: string; text?: string }> }>;
+  error?: CompletionChunk["error"];
+  status?: string;
+  incomplete_details?: { reason?: string };
+};
+type ResponsesChunk = {
+  type?: string;
+  delta?: string;
+  message?: string;
+  code?: string;
+  error?: CompletionChunk["error"];
+  response?: ResponsesResult;
+};
+
 class ModelRequestError extends Error {
   constructor(message: string, readonly retryable: boolean, readonly retryAfterMs = 0) {
     super(message);
@@ -94,9 +110,104 @@ async function readCompletion(response: Response, onContent: (length: number) =>
   }
 }
 
+function responseText(result: ResponsesResult): string {
+  return result.output_text ?? (result.output ?? [])
+    .filter((item) => item.type === "message" && (!item.role || item.role === "assistant"))
+    .flatMap((item) => item.content ?? [])
+    .filter((part) => part.type === "output_text")
+    .map((part) => part.text ?? "").join("");
+}
+
+function validateResponseStatus(result: ResponsesResult): void {
+  if (result.error || result.status === "failed") {
+    const message = getErrorMessage(result.error);
+    throw new ModelRequestError(safeMessage(message), isRetryableStreamError(message));
+  }
+  if (result.status === "incomplete") {
+    const reason = result.incomplete_details?.reason;
+    throw new ModelRequestError(`模型未生成完整讲稿${reason ? `（${safeMessage(reason)}）` : ""}`, reason !== "max_output_tokens" && reason !== "content_filter");
+  }
+  if (result.status && result.status !== "completed") {
+    throw new ModelRequestError(`模型响应尚未完成（${safeMessage(result.status)}）`, true);
+  }
+}
+
+async function readResponsesCompletion(response: Response, onContent: (length: number) => void): Promise<string> {
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.includes("text/event-stream")) {
+    const body = await response.json() as ResponsesResult;
+    validateResponseStatus(body);
+    const content = responseText(body);
+    if (!content.trim()) throw new ModelRequestError("讲稿模型返回为空", true);
+    onContent(content.length);
+    return content;
+  }
+  if (!response.body) throw new ModelRequestError("模型流式响应没有正文", true);
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let content = "";
+  let complete = false;
+  const acceptEvent = (event: string) => {
+    const data = event.split(/\r\n|\n|\r/)
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).trimStart()).join("\n").trim();
+    if (!data) return;
+    if (data === "[DONE]") return;
+    const chunk = JSON.parse(data) as ResponsesChunk;
+    if (chunk.type === "error") {
+      const message = getErrorMessage(chunk.error ?? { message: chunk.message, code: chunk.code });
+      throw new ModelRequestError(safeMessage(message), isRetryableStreamError(message));
+    }
+    if (chunk.type === "response.failed" || chunk.type === "response.incomplete") {
+      validateResponseStatus({ ...chunk.response, status: chunk.type === "response.failed" ? "failed" : "incomplete" });
+    }
+    if (chunk.type === "response.output_text.delta" && chunk.delta) {
+      content += chunk.delta;
+      onContent(content.length);
+    }
+    if (chunk.type === "response.completed") {
+      if (chunk.response) {
+        validateResponseStatus(chunk.response);
+        content = responseText(chunk.response) || content;
+        onContent(content.length);
+      }
+      complete = true;
+    }
+  };
+  try {
+    while (!complete) {
+      const { value, done } = await reader.read();
+      buffer += decoder.decode(value, { stream: !done });
+      const events = buffer.split(/\r\n\r\n|\n\n|\r\r/);
+      buffer = events.pop() ?? "";
+      for (const event of events) acceptEvent(event);
+      if (done) {
+        if (buffer.trim()) acceptEvent(buffer);
+        break;
+      }
+    }
+    if (!complete) throw new ModelRequestError("讲稿接收中断，模型尚未返回完整结果", true);
+    if (!content.trim()) throw new ModelRequestError("讲稿模型返回为空", true);
+    return content;
+  } finally {
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
+}
+
 export async function requestChatCompletion(messages: ChatMessage[]): Promise<string> {
   const service = config.openAiBaseUrl;
   const serviceHost = new URL(service).hostname;
+  // Codex and GPT-5/6 reasoning models use Responses; retain Chat Completions
+  // compatibility for other providers and model families.
+  const useResponses = /^(?:gpt-[56](?:[.-]|$)|codex(?:[.-]|$))/iu.test(config.openAiModel ?? "");
+  const endpoint = `${service}/${useResponses ? "responses" : "chat/completions"}`;
+  const effort = config.openAiReasoningEffort;
+  const requestBody = useResponses
+    ? { model: config.openAiModel, stream: true, store: false, input: messages, ...(effort ? { reasoning: { effort } } : {}) }
+    : { model: config.openAiModel, stream: false, messages, ...(effort ? { reasoning_effort: effort } : { temperature: 0.35 }) };
+  console.log(`[节点 3] 请求接口：${useResponses ? "Responses API" : "Chat Completions"}；思考强度：${effort ?? "自动"}`);
   // A VPN can briefly drop the connection. Keep the retry loop bounded while
   // giving transient network failures five chances to recover automatically.
   const maxRetries = 5;
@@ -110,16 +221,12 @@ export async function requestChatCompletion(messages: ChatMessage[]): Promise<st
     heartbeat.unref();
     let failure: ModelRequestError;
     try {
-      const response = await fetch(`${service}/chat/completions`, {
+      const response = await fetch(endpoint, {
         method: "POST",
         redirect: "error",
         headers: { "content-type": "application/json", authorization: `Bearer ${config.openAiApiKey}` },
-        // BuzzAI occasionally closes the upstream SSE bridge after generation has
-        // started ("Unable to forward upstream stream"). A normal JSON response
-        // keeps the full completion on one reliable connection; readCompletion
-        // still accepts SSE for compatible gateways that ignore this flag.
-        body: JSON.stringify({ model: config.openAiModel, temperature: 0.35, stream: false, messages }),
-        signal: AbortSignal.timeout(300_000),
+        body: JSON.stringify(requestBody),
+        signal: AbortSignal.timeout(effort === "xhigh" ? 600_000 : 300_000),
       });
       if (!response.ok) {
         const body = await response.text();
@@ -135,7 +242,9 @@ export async function requestChatCompletion(messages: ChatMessage[]): Promise<st
         const retryable = [408, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524].includes(response.status);
         throw new ModelRequestError(`${service} 返回 HTTP ${response.status}${detail ? `：${safeMessage(detail)}` : response.status === 524 ? "：服务网关等待模型超时" : ""}`, retryable, Math.min(20_000, retryAfterMs || 0));
       }
-      return await readCompletion(response, (length) => { received = length; });
+      return await (useResponses
+        ? readResponsesCompletion(response, (length) => { received = length; })
+        : readCompletion(response, (length) => { received = length; }));
     } catch (error) {
       if (error instanceof ModelRequestError) failure = error;
       else {
