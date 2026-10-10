@@ -2,6 +2,7 @@ import React from "react";
 import { Composition } from "remotion";
 import type { RenderProject, TrendingRepo } from "../types";
 import { durationInFrames, FPS, ProjectVideo, type VideoProps } from "./ProjectVideo";
+import { defaultOpenRigStoryProps, OpenRigStory } from "./OpenRigStory";
 
 const sampleProject: RenderProject = {
   repo: "open-source/demo-project",
@@ -42,7 +43,7 @@ const sampleLeaderboard: TrendingRepo[] = [
 
 const defaultProps: VideoProps = { project: sampleProject, leaderboard: sampleLeaderboard };
 
-export const RemotionRoot: React.FC = () => <Composition
+export const RemotionRoot: React.FC = () => <><Composition
   id="ProjectVideo"
   component={ProjectVideo}
   width={1080}
@@ -51,4 +52,13 @@ export const RemotionRoot: React.FC = () => <Composition
   durationInFrames={durationInFrames(sampleProject)}
   defaultProps={defaultProps}
   calculateMetadata={({ props }) => ({ durationInFrames: durationInFrames(props.project) })}
-/>
+/><Composition
+  id="OpenRigStoryDemo"
+  component={OpenRigStory}
+  width={1080}
+  height={1920}
+  fps={FPS}
+  durationInFrames={durationInFrames(defaultOpenRigStoryProps.project)}
+  defaultProps={defaultOpenRigStoryProps}
+  calculateMetadata={({ props }) => ({ durationInFrames: durationInFrames(props.project) })}
+/></>;

@@ -32,7 +32,7 @@ const sceneTitles: Record<string, string> = {
   summary: "把输入到结果串起来",
 };
 
-function StageBackground({ asset, frames, durationInFrames }: { asset?: string; frames?: string[]; durationInFrames?: number }) {
+export function StageBackground({ asset, frames, durationInFrames }: { asset?: string; frames?: string[]; durationInFrames?: number }) {
   const frame = useCurrentFrame();
   const sequenceFrame = frames?.length ? frames[frame % frames.length] : undefined;
 
@@ -569,7 +569,7 @@ function ExplainerScene({ project, scene, caption, index, durationFrames, beatId
   </AbsoluteFill>;
 }
 
-function ChapterProgress({ project }: { project: RenderProject }) {
+export function ChapterProgress({ project }: { project: RenderProject }) {
   const frame = useCurrentFrame();
   const totalFrames = project.narrationSegments.reduce((total, segment) => total + framesForMs(segment.durationMs), 0);
   const position = Math.max(0, Math.min(totalFrames, frame));
