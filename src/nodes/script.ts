@@ -6,6 +6,7 @@ import { config } from "../lib/config";
 import { readJson, safeJson, writeJson } from "../lib/io";
 import { repoSlug } from "../lib/paths";
 import { requestChatCompletion, type ChatMessage } from "../lib/chat-completion";
+import { leaderboardContext, leaderboardPresentation } from "../lib/leaderboard";
 import { estimateNarration, loadNarrationTiming, MAX_VIDEO_DURATION_MS, narrationCharacterBudget, TARGET_VIDEO_DURATION_MS, type NarrationTiming } from "../lib/narration";
 
 const PROMPT_VERSION = "gh-weekly-script-v9-spoken-duration-budget";
@@ -86,6 +87,7 @@ function cacheKey(facts: RepoFacts, timing: NarrationTiming): string {
   return createHash("sha256").update(JSON.stringify({
     prompt: PROMPT_VERSION, service: config.openAiBaseUrl, model: config.openAiModel,
     reasoningEffort: config.openAiReasoningEffort ?? "auto",
+    leaderboard: leaderboardContext(facts.leaderboard),
     narration: { model: timing.model, voice: timing.voice, speed: timing.speed, pauseMs: timing.pauseMs, substitutions: timing.substitutions },
     facts: compact,
   })).digest("hex");
@@ -95,6 +97,7 @@ function factsForPrompt(facts: RepoFacts) {
   return {
     repo: facts.fullName,
     rank: facts.rank,
+    leaderboard: { ...leaderboardContext(facts.leaderboard), ...leaderboardPresentation(facts.leaderboard) },
     url: facts.url,
     description: facts.description,
     language: facts.language,
@@ -109,12 +112,23 @@ function factsForPrompt(facts: RepoFacts) {
   };
 }
 
+function validateIntroSource(script: ProjectScript, context = script.leaderboard): void {
+  const intro = script.narrationSegments[0]!;
+  const starHistory = leaderboardContext(context).source === "star-history";
+  const correctName = starHistory ? /Star\s*History/iu : /GitHub\s*Trending/iu;
+  const otherName = starHistory ? /GitHub\s*Trending/iu : /Star\s*History/iu;
+  if (!correctName.test(intro.text) || !correctName.test(intro.spokenText ?? intro.text) || otherName.test(`${intro.text} ${intro.spokenText ?? ""}`)) {
+    throw new Error(`${script.repo} 开场口播榜单来源错误，必须使用 ${leaderboardPresentation(context).name}`);
+  }
+}
+
 function validateScriptCoverage(script: ProjectScript, source: RepoFacts, timing: NarrationTiming): void {
   if (script.repo.toLowerCase() !== source.fullName.toLowerCase()) throw new Error(`讲稿仓库不匹配：预期 ${source.fullName}，实际 ${script.repo}`);
   if (script.rank !== source.rank) throw new Error(`讲稿名次不匹配：${source.fullName} 应为 ${source.rank}，实际 ${script.rank}`);
   const requiredScenes = ["intro", "problem", "concept", "case", "dashboard", "setup", "workflow", "requirements", "summary"];
   const scenes = script.narrationSegments.map((segment) => segment.scene);
   if (requiredScenes.some((scene, index) => scenes[index] !== scene)) throw new Error(`${source.fullName} 讲稿场景必须按固定顺序包含 ${requiredScenes.join(" → ")}`);
+  validateIntroSource(script, source.leaderboard);
   const allowed = new Set(source.sources);
   if (script.sources.some((url) => !allowed.has(url))) throw new Error(`${source.fullName} 讲稿引用了未提供给 AI 的来源`);
   const estimate = estimateNarration(script, timing);
@@ -194,7 +208,7 @@ function parseScripts(content: string, facts: RepoFacts[], timing: NarrationTimi
     const script = byRepo.get(source.fullName.toLowerCase());
     if (!script) throw new Error(`模型漏掉仓库 ${source.fullName}`);
     validateScriptCoverage(script, source, timing);
-    return { ...script, visualAssets: source.visualAssets };
+    return { ...script, visualAssets: source.visualAssets, leaderboard: leaderboardContext(source.leaderboard) };
   });
 }
 
@@ -205,7 +219,7 @@ async function generateBatch(facts: RepoFacts[], timing: NarrationTiming): Promi
   const system = [
     "你是中文开源软件讲解视频的事实型编剧。",
     "只能使用输入资料支持的事实，不得推测功能、性能、用户数量、收费模式或成熟度。资料不足就用中性表述，不要编造。",
-    "本周名次和仓库名必须原样保留。来源只能从每个项目 allowedSources 里选择。",
+    "输入 leaderboard 指定榜单来源、名称和统计区间，名次和仓库名必须原样保留。来源只能从每个项目 allowedSources 里选择。Star History 涨星周榜不能称为 GitHub Trending；涨星数是统计区间新增，不是总 Stars。没有起止日期时不得推算或编造日期。",
     "只输出 JSON，不要 Markdown、代码围栏或额外解释。JSON 格式为 {\"scripts\":[...]}。",
     "每个项目必须输出 repo, rank, title, oneLineSummary, problem, features（最多3项）, audience, usage, exampleScenario, exampleFlow（2到4步）, exampleResult, usageSteps（2到5步）, requirements（1到4项）, limitations（1到3项）, narrationSegments, sources 和 conceptStoryboard；不要省略这些字段。",
     "narrationSegments 必须正好九段且顺序固定：intro、problem、concept、case、dashboard、setup、workflow、requirements、summary；每段含 scene 和 text。只有数字需要特殊口播时才额外提供 spokenText；text 用于字幕，spokenText 用于配音。",
@@ -214,7 +228,7 @@ async function generateBatch(facts: RepoFacts[], timing: NarrationTiming): Promi
     "conceptStoryboard 的 beats 必须按口播顺序讲清一个项目的核心原理。每个 beat 必须同时给出 text（这一拍要说的话）和可选 spokenText，voiceShare 是 concept 口播中该节拍所占比例，所有 voiceShare 之和应接近 1。cue 只是程序内部的时间锚点，绝不作为观众可见文字；cue 只写简短的动作标记，不要写‘首先’、‘接着’、‘然后’、‘最后’等思考过程或讲解句。先画输入或问题，再逐步画核心对象和关系，最后画结果；不要把所有对象一开始铺满。对象位置只提供语义参考，渲染器会自动排版；不要在同一行堆卡片。每一个新增对象都必须通过 connectors 与已经出现或本拍出现的对象建立有口播依据的关系；没有关系的装饰对象不要输出。仅使用允许的对象类型，不写 React、SVG 或其他代码，不编造资料中没有的内部机制。",
     "不要输出背景、网格、渐变、边框、装饰图案或整张图片；背景和画布由程序统一提供。你的输出只描述要画的对象、对象之间的关系和每一拍的口播。",
     "conceptStoryboard 的 title 必须概括项目原理，summary 必须是一句普通人能听懂的话。多 Agent 项目可以画 agent 和 context；编译器、转换器、数据处理项目应按输入、处理、输出选择对象。动作只表达画出、连接、圈定、转换、强调、结果或停留。",
-    `口播为自然普通话，目标约 180 秒，可接受 160–200 秒，不得超过 200 秒；不要为了凑时长重复内容。当前音色 ${timing.voice}，语速 ${timing.speed}，每段停顿 ${timing.pauseMs} 毫秒。按当前音色预算，实际送入配音的全部文字合计控制在约 ${narrationCharacterBudget(timing, 16)} 字符以内（包含中文、英文、标点和数字，不计空格）。intro 保留‘本周 GitHub Trending 第 N 名，今天介绍 XXX’的意思。`,
+    `口播为自然普通话，目标约 180 秒，可接受 160–200 秒，不得超过 200 秒；不要为了凑时长重复内容。当前音色 ${timing.voice}，语速 ${timing.speed}，每段停顿 ${timing.pauseMs} 毫秒。按当前音色预算，实际送入配音的全部文字合计控制在约 ${narrationCharacterBudget(timing, 16)} 字符以内（包含中文、英文、标点和数字，不计空格）。intro 必须以输入 leaderboard.name 加‘第 N 名，今天介绍 XXX’介绍原始榜单名次，不要把不同来源的名次混在一起。Star History 的统计周期以所给日期为准，不用‘本周’代替已结束的日期区间。`,
     "时长预算必须按实际口播统计：concept 场景由 conceptStoryboard.beats 的口播替代原 concept 段，其他八段各自保留；每段优先使用 spokenText，没有才使用 text。不得漏算 beats，也不得通过把更多文字放进 spokenText 绕过预算。重点给原理、案例和操作，排名、痛点、条件和总结简洁表达。",
     "案例可以用资料支持的假设场景，但必须说清是举例；不能把官方演示截图里的示例数字写成真实用户效果。使用步骤按官方资料可复现的先后顺序写，不要编造按钮、安装命令或不支持的功能。",
     "不要写‘想试用的话’、关注、点赞、评论等营销 CTA。视频只讲解、展示案例和讲清使用方法。",
@@ -282,6 +296,7 @@ export async function shortenScriptForDuration(script: ProjectScript, durationMs
       conceptStoryboard: { ...storyboard, beats: storyboard.beats.map((beat, index) => ({ ...beat, text: revision.conceptStoryboard.beats[index]!.text, spokenText: revision.conceptStoryboard.beats[index]!.spokenText })) },
     };
     const after = estimateNarration(result, timing);
+    validateIntroSource(result);
     if (after.spokenCharacters >= before.spokenCharacters) throw new Error(`实际口播未缩短：压缩前 ${before.spokenCharacters}，压缩后 ${after.spokenCharacters} 字符，要求不超过 ${maximumSpokenCharacters}`);
     if (after.spokenCharacters > maximumSpokenCharacters) throw new Error(`实际口播仍超出预算：${after.spokenCharacters} 字符，要求不超过 ${maximumSpokenCharacters}，请继续精简 text 和 spokenText`);
     return result;
@@ -330,7 +345,7 @@ export async function generateScripts(facts: RepoFacts[], outputDirectory: strin
       const script = await readJson<ProjectScript>(cachePath);
       validateScriptCoverage(script, item, timing);
       if (estimateNarration(script, timing).durationMs > MAX_VIDEO_DURATION_MS) throw new Error("缓存讲稿超出当前配音时长预算");
-      cached.set(item.fullName.toLowerCase(), { ...script, visualAssets: item.visualAssets });
+      cached.set(item.fullName.toLowerCase(), { ...script, visualAssets: item.visualAssets, leaderboard: leaderboardContext(item.leaderboard) });
       await writeJson(path.join(outputDirectory, `${repoSlug(item.fullName)}.json`), cached.get(item.fullName.toLowerCase()));
       console.log(`[节点 3] ${cached.size}/${facts.length} ${item.fullName} 讲稿已复用缓存`);
       validationReport.push({ repo: item.fullName, status: "passed", issues: [] });

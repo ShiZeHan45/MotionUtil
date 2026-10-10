@@ -10,7 +10,8 @@
 - 超长讲稿自动压缩，无需确认弹窗；压缩期间节点 3 运行，节点 4 显示“等待讲稿压缩”，配音进度暂停显示。
 - 运行日志实时接收 Node.js/Python/Remotion 的标准输出和错误输出。
 - 环境页检查 Node.js、项目依赖、Python/Kokoro、语音模型和 Remotion Headless Chrome，并提供下载、安装、重试按钮。
-- 设置页覆盖模型服务、API Key、模型思考强度（自动、低、中、高、极高）、GitHub Token、节点 2 周榜项目数量、Kokoro 音色/设备/语速、浏览器路径和输出目录。
+- 运行页顶部提供 GitHub Trending / Star History 周榜切换及视频数量（1–20），运行中锁定；当前期次显示来源和统计区间。从断点继续沿用原期次的来源、数量和榜单快照。
+- 设置页覆盖模型服务、API Key、模型思考强度（自动、低、中、高、极高）、GitHub Token、Kokoro 音色/设备/语速、浏览器路径和输出目录。
 - API Key 与 GitHub Token 使用 Windows 当前用户 DPAPI 加密保存于 `%LOCALAPPDATA%\GitHubTrendingVideo\settings.json`。
 - “视频动态背景”可选择 MP4 或 GIF；留空时使用白底，动态素材在节点 5 预解码为可循环的帧缓存。
 
@@ -46,9 +47,9 @@ dotnet build .\desktop\GithubTrendingVideo.WinForms\GithubTrendingVideo.WinForms
 
 ## 从哪里开始执行
 
-1. 点击左侧 **开始生成**。
+1. 点击左侧 **视频制作**。
 2. 如果首次使用，先点击 **设置**，填写项目目录、模型服务和 API Key。
-3. 回到 **开始生成** 页面，点击右侧蓝色的 **▶ 开始生成本周视频**。
+3. 回到 **视频制作** 页面，选择榜单来源和视频数量，点击 **▶ 生成新一期**。
 4. 软件会按节点 1 到节点 5 执行；下方卡片显示每一步状态。失败时可点击对应节点的“重试此节点”。
 
 ## 首次运行的实际下载

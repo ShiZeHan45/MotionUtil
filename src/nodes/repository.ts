@@ -1,4 +1,5 @@
 import type { RepoFacts, TrendingRepo, TrendingSnapshot } from "../types";
+import { snapshotContext } from "../lib/leaderboard";
 import { config } from "../lib/config";
 import { repoSlug } from "../lib/paths";
 import { writeJson } from "../lib/io";
@@ -148,7 +149,7 @@ async function collectOne(trending: TrendingRepo, outputDirectory: string): Prom
     updatedAt: repo.updated_at,
     readme,
     visualAssets,
-    sources: [trending.url, endpoint, ...(readme ? [readme.sourceUrl] : []), ...visualAssets.map((asset) => asset.sourceUrl)],
+    sources: [trending.url, endpoint, ...(trending.leaderboard ? [trending.leaderboard.sourceUrl] : []), ...(readme ? [readme.sourceUrl] : []), ...visualAssets.map((asset) => asset.sourceUrl)],
   };
   return facts;
 }
@@ -159,7 +160,7 @@ export async function collectRepositoryFacts(snapshot: TrendingSnapshot, outputD
   const results: RepoFacts[] = [];
   for (const [index, item] of selected.entries()) {
     console.log(`[节点 2] ${index + 1}/${selected.length} 获取 ${item.fullName}`);
-    const facts = await collectOne(item, outputDirectory);
+    const facts = await collectOne({ ...item, leaderboard: snapshotContext(snapshot) }, outputDirectory);
     await writeJson(`${outputDirectory}/${repoSlug(item.fullName)}.json`, facts);
     results.push(facts);
   }

@@ -1,11 +1,12 @@
 import React from "react";
 import { AbsoluteFill, Audio, Img, Loop, OffthreadVideo, Sequence, Video, cancelRender, continueRender, delayRender, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
-import type { ConceptBeat, ConceptConnector, ConceptObject, ConceptStoryboard, RenderProject, TrendingRepo } from "../types";
+import type { ConceptBeat, ConceptConnector, ConceptObject, ConceptStoryboard, LeaderboardContext, RenderProject, TrendingRepo } from "../types";
+import { leaderboardPresentation } from "../lib/leaderboard";
 import { isBadgeAsset } from "../lib/visual-assets";
 import { LayoutGuard, TextBlock, textLayout, textProgress, VIDEO_FONT } from "./text-layout";
 import { connectorId, layoutConceptGraph, type ConceptGraphLayout, type GraphEdge, type GraphNode } from "./concept-layout";
 
-export type VideoProps = { project: RenderProject; leaderboard: TrendingRepo[]; background?: string; backgroundFrames?: string[]; backgroundDurationInFrames?: number };
+export type VideoProps = { project: RenderProject; leaderboard: TrendingRepo[]; leaderboardContext?: LeaderboardContext; background?: string; backgroundFrames?: string[]; backgroundDurationInFrames?: number };
 export const FPS = 30;
 export const INTRO_PAD_MS = 300;
 
@@ -48,8 +49,6 @@ function StageBackground({ asset, frames, durationInFrames }: { asset?: string; 
           : <Video src={staticFile(staticAsset)} muted loop style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />}
       <div style={{ position: "absolute", inset: 0, background: "rgba(255,255,255,.18)" }} />
       <div style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, rgba(255,255,255,.2) 0%, rgba(255,255,255,0) 38%, rgba(255,255,255,.1) 100%)" }} />
-      <div style={{ position: "absolute", top: VIDEO_SAFE_TOP, left: 64, display: "flex", alignItems: "center", gap: 13, color: palette.ink, fontSize: 25, fontWeight: 900 }}><span style={{ width: 18, height: 18, borderRadius: "50%", background: palette.coral, border: `4px solid ${palette.ink}` }} />每周开源项目排行</div>
-      <div style={{ position: "absolute", top: VIDEO_SAFE_TOP + 4, right: 58, color: palette.teal, fontSize: 22, fontWeight: 900, letterSpacing: 1 }}>GITHUB · WEEKLY</div>
     </div>;
   }
 
@@ -192,46 +191,55 @@ function SceneDiagram({ project, scene, top, durationFrames }: { project: Render
   </div>;
 }
 
-function RankCard({ repo, selected, scanning, index, durationFrames }: { repo: TrendingRepo; selected: boolean; scanning: boolean; index: number; durationFrames: number }) {
+function RankCard({ repo, selected, scanning, index, durationFrames, context }: { repo: TrendingRepo; selected: boolean; scanning: boolean; index: number; durationFrames: number; context?: LeaderboardContext }) {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const entrance = spring({ frame: frame - index * 3, fps, config: { damping: 18, mass: 0.7 } });
-  const lift = selected ? interpolate(frame, [fps * 0.7, fps * 1.8], [0, -18], { extrapolateRight: "clamp" }) : 0;
+  const lift = selected ? interpolate(frame, [fps * 0.7, fps * 1.8], [0, -3], { extrapolateRight: "clamp" }) : 0;
   const formatStars = (stars: number | null) => stars === null ? "—" : new Intl.NumberFormat("en-US").format(stars);
-  const nameLayout = textLayout(repo.fullName, 420, 82, 32, 28, 850);
-  const descriptionLayout = textLayout(repo.description || "GitHub Trending 本周项目", 420, 62, 23, 22, 650);
-  return <div data-text-region={`榜单 ${repo.rank}`} style={{ transform: `translateY(${(1 - entrance) * 48 + lift}px) scale(${selected ? 1.035 : scanning ? 1.02 : 1})`, opacity: entrance * (selected || scanning || frame < fps * 1.2 ? 1 : 0.55), width: 800, height: 190, marginBottom: 14, padding: "15px 24px", boxSizing: "border-box", display: "flex", alignItems: "center", gap: 16, border: `4px solid ${selected ? palette.teal : scanning ? palette.coral : palette.ink}`, borderRadius: 26, background: selected ? "#fffef9" : scanning ? "#fff8eb" : "rgba(255,255,255,.75)", boxShadow: selected ? "0 18px 0 rgba(22,140,134,.16)" : "0 7px 0 rgba(20,52,74,.08)" }}>
-    <div style={{ flex: "0 0 auto", width: 64, height: 64, borderRadius: "50%", display: "grid", placeItems: "center", color: "white", background: selected ? palette.coral : scanning ? palette.teal : palette.ink, fontSize: 34, fontWeight: 900 }}>#{repo.rank}</div>
+  const starHistory = context?.source === "star-history";
+  const primaryStars = starHistory ? repo.starsThisWeek : repo.totalStars;
+  const nameLayout = textLayout(repo.fullName, 380, 82, 32, 28, 850);
+  const descriptionLayout = textLayout(repo.description || leaderboardPresentation(context).name, 380, 62, 23, 22, 650);
+  return <div data-text-region={`榜单 ${repo.rank}`} style={{ transform: `translateY(${(1 - entrance) * 48 + lift}px) scale(${selected || scanning ? 1.01 : 1})`, opacity: entrance * (selected || scanning || frame < fps * 1.2 ? 1 : 0.55), width: 800, height: 190, marginBottom: 14, padding: "15px 24px", boxSizing: "border-box", display: "flex", alignItems: "center", gap: 16, border: `4px solid ${selected ? palette.teal : scanning ? palette.coral : palette.ink}`, borderRadius: 26, background: selected ? "#fffef9" : scanning ? "#fff8eb" : "rgba(255,255,255,.75)", boxShadow: selected ? "0 8px 0 rgba(22,140,134,.16)" : "0 7px 0 rgba(20,52,74,.08)" }}>
+    <div style={{ flex: "0 0 auto", width: 64, height: 64, borderRadius: "50%", display: "grid", placeItems: "center", color: "white", background: selected ? palette.coral : scanning ? palette.teal : palette.ink, fontSize: repo.rank >= 10 ? 27 : 34, fontWeight: 900 }}>#{repo.rank}</div>
       <div style={{ minWidth: 0, flex: 1 }}>
       <TextBlock layout={nameLayout} name={`榜单仓库名 ${repo.rank}`} progress={textProgress(frame, durationFrames)} style={{ fontWeight: 850, color: palette.ink }} />
       <TextBlock layout={descriptionLayout} name={`榜单说明 ${repo.rank}`} progress={textProgress(frame, durationFrames)} style={{ marginTop: 7, color: palette.muted }} />
     </div>
-    <div style={{ flex: "0 0 132px", textAlign: "right", whiteSpace: "nowrap" }}>
+    <div style={{ flex: "0 0 180px", textAlign: "right" }}>
       <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 5, fontSize: 24, lineHeight: 1.15, fontWeight: 950, color: palette.ink }}>
-        <span style={{ color: palette.yellow, fontSize: 28 }}>★</span>{formatStars(repo.totalStars)}
+        <span style={{ color: starHistory ? palette.teal : palette.yellow, fontSize: 28 }}>{starHistory ? "↗" : "★"}</span>{formatStars(primaryStars)}
       </div>
-      {repo.starsThisWeek !== null && <div style={{ marginTop: 7, color: palette.teal, fontSize: 17, lineHeight: 1.1, fontWeight: 850 }}>↗ {formatStars(repo.starsThisWeek)} 本周</div>}
+      {starHistory ? <div style={{ marginTop: 7, color: palette.teal, fontSize: 17, lineHeight: 1.1, fontWeight: 850 }}>{leaderboardPresentation(context).metricLabel} Stars</div>
+        : repo.starsThisWeek !== null && <div style={{ marginTop: 7, color: palette.teal, fontSize: 17, lineHeight: 1.1, fontWeight: 850 }}>↗ {formatStars(repo.starsThisWeek)}<br />{leaderboardPresentation(context).metricLabel}</div>}
       {selected && <div style={{ marginTop: 10, color: palette.teal, fontSize: 20, fontWeight: 900 }}>本期介绍</div>}
     </div>
   </div>;
 }
 
-function LeaderboardScene({ project, leaderboard, caption, durationFrames }: { project: RenderProject; leaderboard: TrendingRepo[]; caption: string; durationFrames: number }) {
+function LeaderboardScene({ project, leaderboard, caption, durationFrames, context }: { project: RenderProject; leaderboard: TrendingRepo[]; caption: string; durationFrames: number; context?: LeaderboardContext }) {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const pulse = 1 + Math.sin(frame / 8) * 0.025;
-  const visibleRepos = leaderboard.slice(0, 5);
+  const presentation = leaderboardPresentation(context);
+  // Keep each rank readable: page a longer list and finish on the featured project.
+  const pages = Math.max(1, Math.ceil(leaderboard.length / 5));
+  const selectedPage = Math.max(0, Math.floor(leaderboard.findIndex((repo) => repo.rank === project.rank) / 5));
+  const pageDuration = Math.max(fps, Math.floor(durationFrames * 0.6 / pages));
+  const page = frame < durationFrames * 0.6 ? Math.min(pages - 1, Math.floor(frame / pageDuration)) : selectedPage;
+  const visibleRepos = leaderboard.slice(page * 5, (page + 1) * 5);
   const locked = frame >= fps * 1.5;
-  const scanRank = Math.min(visibleRepos.length, Math.floor(frame / Math.max(1, fps * 0.24)) + 1);
+  const scanRank = visibleRepos[Math.min(visibleRepos.length - 1, Math.floor((frame % pageDuration) / Math.max(1, fps * 0.24)))]?.rank;
   const selected = leaderboard.find((repo) => repo.rank === project.rank) ?? { rank: project.rank, fullName: project.repo, description: project.oneLineSummary, owner: project.repo.split("/")[0] ?? "", name: project.repo.split("/")[1] ?? "", url: "", language: null, totalStars: null, starsThisWeek: null };
   return <AbsoluteFill style={{ color: palette.ink }}>
     <div style={{ position: "absolute", top: 180, left: 0, right: 0, textAlign: "center" }}>
-      <div style={{ fontSize: 26, letterSpacing: 5, color: palette.teal, fontWeight: 900 }}>本周 GitHub Trending</div>
-      <div style={{ marginTop: 22, fontSize: 66, fontWeight: 950 }}>开源项目排行</div>
-      <div style={{ marginTop: 10, fontSize: 28, color: palette.muted }}>从本周榜单中，找到值得关注的项目</div>
+      <div style={{ fontSize: 26, color: palette.teal, fontWeight: 900 }}>{presentation.name}</div>
+      <div style={{ marginTop: 22, fontSize: 66, fontWeight: 950 }}>{presentation.title}</div>
+      <div style={{ marginTop: 10, fontSize: 26, color: palette.muted }}>{presentation.dateLabel || "关注值得了解的开源项目"}</div>
     </div>
     <div style={{ position: "absolute", top: 480, left: 140, right: 140, display: "flex", flexDirection: "column", alignItems: "center", transform: `scale(${pulse})`, transformOrigin: "center top" }}>
-      {visibleRepos.map((repo, index) => <RankCard key={repo.fullName} repo={repo} selected={locked && repo.rank === project.rank} scanning={!locked && repo.rank === scanRank} index={index} durationFrames={durationFrames} />)}
+      {visibleRepos.map((repo, index) => <RankCard key={repo.fullName} repo={repo} selected={locked && repo.rank === project.rank} scanning={!locked && repo.rank === scanRank} index={index} durationFrames={durationFrames} context={context} />)}
     </div>
     <div style={{ position: "absolute", bottom: 265, left: 76, right: 76, textAlign: "center", color: palette.ink, fontWeight: 800 }}><TextBlock layout={textLayout(`今天介绍：${selected.fullName}`, 928, 84, 30, 28, 800)} name="本期仓库名" progress={textProgress(frame, durationFrames)} /></div>
     <div style={{ position: "absolute", top: 1450, left: 54, transformOrigin: "top left", transform: `translateY(${Math.sin(frame / 14) * 5}px) scale(.6)` }}><CodeMascot /></div>
@@ -566,7 +574,7 @@ function ChapterProgress({ project }: { project: RenderProject }) {
   const totalFrames = project.narrationSegments.reduce((total, segment) => total + framesForMs(segment.durationMs), 0);
   const position = Math.max(0, Math.min(totalFrames, frame));
   const groups = [
-    { label: "开场", scenes: ["intro"] },
+    { label: "排行", scenes: ["intro"] },
     { label: "讲解", scenes: ["problem", "concept"] },
     { label: "案例", scenes: ["case", "dashboard"] },
     { label: "操作", scenes: ["setup", "workflow"] },
@@ -589,25 +597,30 @@ function ChapterProgress({ project }: { project: RenderProject }) {
       const groupProgress = frames ? Math.min(100, Math.max(0, ((position - groupStart) / frames) * 100)) : 0;
       const completed = index < currentChapter || (index === currentChapter && groupProgress >= 100);
       const active = index === currentChapter && !completed;
-      const fillColor = completed ? palette.teal : active ? palette.coral : "transparent";
+      const fillColor = completed ? palette.tealLight : active ? "#F6B8AA" : "transparent";
       const fill = completed ? 100 : active ? groupProgress : 0;
       const baseColor = index <= currentChapter ? "rgba(255,255,255,.86)" : "rgba(255,255,255,.52)";
-      return <div key={group.label} style={{ position: "relative", flex: 1, minWidth: 0, display: "grid", placeItems: "center", borderLeft: index === 0 ? "none" : `2px solid rgba(20,52,74,.2)`, background: `linear-gradient(90deg, ${fillColor} ${fill}%, ${baseColor} ${fill}%)`, color: completed ? "white" : active ? palette.ink : palette.muted, fontSize: group.label.length > 4 ? 15 : 17, fontWeight: 950, textAlign: "center", textShadow: completed ? "0 1px 0 rgba(20,52,74,.25)" : "none" }}><span style={{ position: "relative", zIndex: 1, whiteSpace: "nowrap", padding: "0 5px" }}>{group.label}</span></div>;
+      return <div key={group.label} style={{ position: "relative", flex: 1, minWidth: 0, display: "grid", placeItems: "center", borderLeft: index === 0 ? "none" : `2px solid rgba(20,52,74,.2)`, background: `linear-gradient(90deg, ${fillColor} ${fill}%, ${baseColor} ${fill}%)`, color: index <= currentChapter ? palette.ink : palette.muted, fontSize: group.label.length > 4 ? 15 : 17, fontWeight: 950, textAlign: "center" }}><span style={{ position: "relative", zIndex: 1, whiteSpace: "nowrap", padding: "0 5px" }}>{group.label}</span></div>;
     })}
   </div>;
 }
 
-export const ProjectVideo: React.FC<VideoProps> = ({ project, leaderboard, background, backgroundFrames, backgroundDurationInFrames }) => {
+export const ProjectVideo: React.FC<VideoProps> = ({ project, leaderboard, leaderboardContext: context, background, backgroundFrames, backgroundDurationInFrames }) => {
+  const effectiveContext = context ?? project.leaderboard ?? leaderboard[0]?.leaderboard;
+  const presentation = leaderboardPresentation(effectiveContext);
   let from = 0;
   return <AbsoluteFill style={{ backgroundColor: palette.paper, fontFamily: VIDEO_FONT }}><LayoutGuard>
     <StageBackground asset={background} frames={backgroundFrames} durationInFrames={backgroundDurationInFrames} />
+    <div style={{ position: "absolute", zIndex: 79, top: VIDEO_SAFE_TOP, left: 64, right: 58, display: "flex", justifyContent: "space-between", alignItems: "center", color: palette.ink }}>
+      <span style={{ fontSize: 25, fontWeight: 900 }}>开源项目观察</span><span style={{ color: palette.teal, fontSize: 22, fontWeight: 900 }}>{presentation.mark}</span>
+    </div>
     {project.narrationSegments.map((segment, index) => {
       const frames = framesForMs(segment.durationMs);
       const start = from;
       from += frames;
       return <Sequence key={`${segment.scene}-${index}`} from={start} durationInFrames={frames} name={segment.scene}>
         {segment.scene === "intro"
-          ? <LeaderboardScene project={project} leaderboard={leaderboard} caption={segment.text} durationFrames={frames} />
+          ? <LeaderboardScene project={project} leaderboard={leaderboard} caption={segment.text} durationFrames={frames} context={effectiveContext} />
           : <ExplainerScene project={project} scene={segment.scene} caption={segment.text} index={index} durationFrames={frames} beatId={segment.beatId} />}
         {segment.audio ? <Audio src={staticFile(segment.audio)} /> : null}
       </Sequence>;

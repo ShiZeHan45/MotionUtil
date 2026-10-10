@@ -11,9 +11,10 @@ public sealed class PipelineService(RuntimePaths paths, ProcessRunner processes,
     public event Action<string>? LogLine;
     public event Action<int, int>? OverallProgressChanged;
     public event Action<string>? RunIdChanged;
+    public event Action<LeaderboardRunInfo, bool>? LeaderboardChanged;
 
     private static readonly string[] Commands = ["trending", "repos", "scripts", "tts", "render"];
-    private static readonly string[] Labels = ["采集周榜", "收集项目资料", "生成讲稿", "生成中文配音", "渲染视频"];
+    private static readonly string[] Labels = ["采集榜单", "收集项目资料", "生成讲稿", "生成中文配音", "渲染视频"];
 
     public async Task RunFromStepAsync(int startIndex, AppSettings settings, string projectDirectory, CancellationToken cancellationToken)
     {
@@ -26,12 +27,12 @@ public sealed class PipelineService(RuntimePaths paths, ProcessRunner processes,
         if (startIndex == 0)
         {
             runId = DateTimeOffset.UtcNow.ToString("yyyy-MM-dd'T'HH-mm-ss-fff'Z'");
-            report = new PipelineReport { RunId = runId, StartedAt = DateTimeOffset.UtcNow };
+            report = new PipelineReport { RunId = runId, StartedAt = DateTimeOffset.UtcNow, LeaderboardSource = settings.LeaderboardSource, TopN = settings.TrendingTopN };
         }
         else
         {
             var latestPath = Path.Combine(outputDirectory, "latest-run.json");
-            if (!File.Exists(latestPath)) throw new InvalidOperationException("还没有可继续的运行期次，请先从“采集周榜”开始。");
+            if (!File.Exists(latestPath)) throw new InvalidOperationException("还没有可继续的运行期次，请先从“采集榜单”开始。");
             using var latestDoc = JsonDocument.Parse(await File.ReadAllTextAsync(latestPath, cancellationToken));
             runId = latestDoc.RootElement.GetProperty("runId").GetString() ?? throw new InvalidOperationException("最近运行期次记录无效。");
             ValidateInputs(startIndex, Path.Combine(outputDirectory, runId));
@@ -51,6 +52,13 @@ public sealed class PipelineService(RuntimePaths paths, ProcessRunner processes,
         RunIdChanged?.Invoke(runId);
         var runDirectory = Path.Combine(outputDirectory, runId);
         Directory.CreateDirectory(runDirectory);
+        var leaderboard = startIndex == 0
+            ? new LeaderboardRunInfo(AppSettings.NormalizeLeaderboardSource(settings.LeaderboardSource), settings.TrendingTopN)
+            : await LeaderboardRunInfo.ReadAsync(runDirectory, report.TopN ?? settings.TrendingTopN, cancellationToken)
+              ?? throw new InvalidOperationException("此期次缺少榜单快照，请从节点 1 重新采集。");
+        report.LeaderboardSource = leaderboard.Source;
+        report.TopN = leaderboard.TopN;
+        LeaderboardChanged?.Invoke(leaderboard, startIndex != 0);
         var reportFile = Path.Combine(runDirectory, "run-report.json");
         await SaveLatestRunAsync(outputDirectory, runId);
         // Starting at a later node means the required input files are already
@@ -77,6 +85,8 @@ public sealed class PipelineService(RuntimePaths paths, ProcessRunner processes,
                 var cliRunner = Path.Combine(projectDirectory, "node_modules", "tsx", "dist", "cli.mjs");
                 var cliEntry = Path.Combine(projectDirectory, "src", "cli.ts");
                 var env = CreateProcessEnvironment(settings, projectDirectory, outputDirectory);
+                env["LEADERBOARD_SOURCE"] = leaderboard.Source;
+                env["GITHUB_TOP_N"] = leaderboard.TopN.ToString(CultureInfo.InvariantCulture);
 
                 await processes.RunCheckedAsync(node, [cliRunner, cliEntry, Commands[index], "--run-id", runId], projectDirectory, env,
                     line =>
@@ -109,6 +119,13 @@ public sealed class PipelineService(RuntimePaths paths, ProcessRunner processes,
                         if (percent.Success && int.TryParse(percent.Groups[1].Value, out var value))
                             StepChanged?.Invoke(index, "运行中", Math.Clamp(value, 2, 98));
                     }, cancellationToken);
+
+                if (index == 0)
+                {
+                    leaderboard = await LeaderboardRunInfo.ReadAsync(runDirectory, leaderboard.TopN, cancellationToken)
+                        ?? throw new InvalidOperationException("节点 1 未生成榜单快照。");
+                    LeaderboardChanged?.Invoke(leaderboard, true);
+                }
 
                 var label = $"节点 {index + 1}";
                 if (!report.CompletedNodes.Contains(label)) report.CompletedNodes.Add(label);
@@ -160,7 +177,7 @@ public sealed class PipelineService(RuntimePaths paths, ProcessRunner processes,
 
     public static string[] StepLabels => Labels;
     public static bool IsStepCompleted(PipelineReport report, int index) =>
-        report.CompletedNodes?.Any(label => label == $"节点 {index + 1}" || label == Labels[index]) == true;
+        report.CompletedNodes?.Any(label => label == $"节点 {index + 1}" || label == Labels[index] || (index == 0 && label == "采集周榜")) == true;
 
     private int _activeIndex;
     private bool _compressingScript;
@@ -207,6 +224,7 @@ public sealed class PipelineService(RuntimePaths paths, ProcessRunner processes,
             ["OPENAI_API_KEY"] = settings.OpenAiApiKey,
             ["GITHUB_TOKEN"] = settings.GithubToken,
             ["GITHUB_TOP_N"] = Math.Clamp(settings.TrendingTopN, 1, 20).ToString(CultureInfo.InvariantCulture),
+            ["LEADERBOARD_SOURCE"] = AppSettings.NormalizeLeaderboardSource(settings.LeaderboardSource),
             ["KOKORO_MODEL"] = settings.KokoroModel,
             ["KOKORO_VOICE"] = settings.KokoroVoice,
             ["KOKORO_DEVICE"] = settings.KokoroDevice,

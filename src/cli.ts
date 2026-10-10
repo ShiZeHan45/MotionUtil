@@ -1,6 +1,6 @@
 import path from "node:path";
 import { readdir } from "node:fs/promises";
-import type { ProjectScript, RepoFacts, RenderProject, TrendingSnapshot } from "./types";
+import type { LeaderboardContext, ProjectScript, RepoFacts, RenderProject, TrendingSnapshot } from "./types";
 import { collectTrending } from "./nodes/trending";
 import { collectRepositoryFacts } from "./nodes/repository";
 import { generateScripts } from "./nodes/script";
@@ -9,6 +9,7 @@ import { renderVideos } from "./nodes/render";
 import { createRunId, createRunPaths, getOutputRoot } from "./lib/paths";
 import { readJson, writeJson } from "./lib/io";
 import { config } from "./lib/config";
+import { leaderboardPresentation, snapshotContext } from "./lib/leaderboard";
 
 type RunReport = {
   runId: string;
@@ -18,6 +19,8 @@ type RunReport = {
   completedNodes: string[];
   failedAt?: string;
   error?: string;
+  leaderboard?: LeaderboardContext;
+  topN?: number;
 };
 
 function argValue(name: string): string | undefined {
@@ -51,21 +54,24 @@ async function readScripts(directory: string): Promise<ProjectScript[]> {
 async function runNode1(runId: string) {
   const paths = await createRunPaths(runId);
   const snapshot = await collectTrending(paths.trending, path.join(paths.root, "trending-source.html"));
-  console.log(`[节点 1] 已保存 ${snapshot.repos.length} 个周榜项目：${paths.trending}`);
+  console.log(`[节点 1] 已保存 ${snapshot.repos.length} 个${leaderboardPresentation(snapshot.leaderboard).name}项目：${paths.trending}`);
   return snapshot;
 }
 
 async function runNode2(snapshot: TrendingSnapshot, runId: string) {
   const paths = await createRunPaths(runId);
-  console.log(`[节点 2] 按 Top ${config.githubTopN} 获取项目资料`);
-  const facts = await collectRepositoryFacts(snapshot, paths.repos, config.githubTopN);
+  const topN = snapshot.topN ?? config.githubTopN;
+  console.log(`[节点 2] 按 Top ${topN} 获取项目资料`);
+  const facts = await collectRepositoryFacts(snapshot, paths.repos, topN);
   console.log(`[节点 2] 已保存 ${facts.length} 份项目资料：${paths.repos}`);
   return facts;
 }
 
 async function runNode3(facts: RepoFacts[], runId: string) {
   const paths = await createRunPaths(runId);
-  const scripts = await generateScripts(facts, paths.scripts);
+  const snapshot = await readJson<TrendingSnapshot>(paths.trending);
+  const context = snapshotContext(snapshot);
+  const scripts = await generateScripts(facts.map((item) => ({ ...item, leaderboard: context })), paths.scripts);
   console.log(`[节点 3] 已生成 ${scripts.length} 份讲稿：${paths.scripts}`);
   return scripts;
 }
@@ -80,7 +86,7 @@ async function runNode4(scripts: ProjectScript[], runId: string) {
 async function runNode5(projects: RenderProject[], snapshot: TrendingSnapshot, runId: string) {
   const paths = await createRunPaths(runId);
   const outputDirectory = path.join(paths.root, "renders");
-  const videos = await renderVideos(projects, snapshot.repos, outputDirectory, runId);
+  const videos = await renderVideos(projects, snapshot.repos, outputDirectory, runId, snapshotContext(snapshot), snapshot.topN);
   await writeJson(path.join(outputDirectory, "index.json"), videos.map((file) => ({ file, repo: projects.find((project) => file.includes(project.repo.toLowerCase().replaceAll("/", "__")))?.repo ?? path.basename(file) })));
   console.log(`[节点 5] 渲染完成：${outputDirectory}`);
   return videos;
@@ -93,6 +99,8 @@ async function pipeline(runId: string): Promise<void> {
   let node = "节点 1";
   try {
     const snapshot = await runNode1(runId);
+    report.leaderboard = snapshotContext(snapshot);
+    report.topN = snapshot.topN;
     report.completedNodes.push("节点 1");
     await writeJson(reportPath, report);
     node = "节点 2";
@@ -158,7 +166,7 @@ async function main(): Promise<void> {
     return;
   }
   console.log([
-    "GitHub Trending Video — 节点 1–5",
+    "开源项目视频 — 节点 1–5",
     "  pnpm run trending             # 节点 1：采集并保存周榜快照",
     "  pnpm run repos                # 节点 2：读取最近期次并收集配置数量的项目资料",
     "  pnpm run scripts              # 节点 3：批量生成/读取缓存讲稿",
@@ -167,7 +175,7 @@ async function main(): Promise<void> {
     "  pnpm run run                  # 节点 1–5：完整串行执行一次",
     "  pnpm run dev                  # Remotion Studio 预览模板样例",
     "  可选参数：--run-id <期次目录名>",
-    "  配置：复制 .env.example 为 .env，填入模型、GitHub token、GITHUB_TOP_N 和 Kokoro 设置。",
+    "  配置：复制 .env.example 为 .env，填入 LEADERBOARD_SOURCE、模型、GitHub token、GITHUB_TOP_N 和 Kokoro 设置。",
   ].join("\n"));
 }
 

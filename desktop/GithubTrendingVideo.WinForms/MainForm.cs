@@ -20,7 +20,7 @@ public sealed class MainForm : Form
     private readonly Dictionary<int, NodeCard> _cards = [];
     private readonly TextBox _log = new() { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Both, Dock = DockStyle.Fill, BackColor = Color.FromArgb(22, 27, 34), ForeColor = Color.FromArgb(225, 232, 240), Font = new Font("Consolas", 9.5f) };
     private readonly Label _runLabel = new() { AutoSize = false, Width = 150, Height = 24, AutoEllipsis = true, Text = "尚未开始运行", ForeColor = Color.FromArgb(93, 173, 226), Font = new Font("Microsoft YaHei UI", 10, FontStyle.Bold) };
-    private readonly Label _overallLabel = new() { AutoSize = true, Text = "整体进度 0/5" };
+    private readonly Label _overallLabel = new() { AutoSize = false, Text = "整体进度 0/5", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft };
     private readonly Label _overallEtaLabel = new() { AutoSize = false, Width = 150, Height = 24, AutoEllipsis = true, Text = "预计剩余 正在估算…", ForeColor = Color.FromArgb(71, 85, 105) };
     private readonly ProgressBar _overallProgress = new() { Width = 220, Height = 16, Maximum = 5, Style = ProgressBarStyle.Continuous };
     private readonly Label _projectLabel = new() { AutoEllipsis = true, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft };
@@ -33,6 +33,11 @@ public sealed class MainForm : Form
     private readonly ComboBox _voiceBox = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 210, IntegralHeight = false, MaxDropDownItems = 18 };
     private readonly NumericUpDown _speedBox = new() { Minimum = 0.1m, Maximum = 3m, DecimalPlaces = 2, Increment = 0.05m, Width = 150 };
     private readonly NumericUpDown _topNBox = new() { Minimum = 1, Maximum = 20, DecimalPlaces = 0, Increment = 1, Width = 150 };
+    private readonly RadioButton _githubSource = new() { Text = "GitHub Trending", Appearance = Appearance.Button, FlatStyle = FlatStyle.Flat, TextAlign = ContentAlignment.MiddleCenter, Width = 154, Height = 32, AccessibleName = "GitHub Trending 周榜" };
+    private readonly RadioButton _starHistorySource = new() { Text = "Star History", Appearance = Appearance.Button, FlatStyle = FlatStyle.Flat, TextAlign = ContentAlignment.MiddleCenter, Width = 130, Height = 32, AccessibleName = "Star History 周榜" };
+    private readonly Label _leaderboardLabel = new() { Dock = DockStyle.Fill, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft, ForeColor = Color.FromArgb(14, 116, 144), Text = "当前期次：尚未采集" };
+    private Button? _newRunButton;
+    private bool _updatingLeaderboard;
     private readonly Label _outputLabel = new() { AutoEllipsis = true, Dock = DockStyle.Fill };
     private Button? _resumeButton;
     private CancellationTokenSource? _runCancellation;
@@ -62,7 +67,7 @@ public sealed class MainForm : Form
         _settings = LoadSettingsSafely();
         _environment = new EnvironmentService(_paths, _processes);
         _pipeline = new PipelineService(_paths, _processes, _environment);
-        Text = "GitHub Trending Video · 桌面工作台";
+        Text = "开源项目视频 · 桌面工作台";
         MinimumSize = new Size(960, 680);
         var workArea = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1280, 800);
         Size = new Size(Math.Min(1240, Math.Max(MinimumSize.Width, workArea.Width - 24)), Math.Min(820, Math.Max(MinimumSize.Height, workArea.Height - 24)));
@@ -89,8 +94,8 @@ public sealed class MainForm : Form
     private void BuildUi()
     {
         var header = new Panel { Dock = DockStyle.Top, Height = 84, BackColor = Color.FromArgb(31, 41, 55), Padding = new Padding(24, 12, 24, 10) };
-        var title = new Label { Text = "GitHub Trending Video", ForeColor = Color.White, Font = new Font("Microsoft YaHei UI", 18, FontStyle.Bold), AutoSize = true, Location = new Point(24, 12) };
-        var subtitle = new Label { Text = "周榜项目 · 讲稿 · Kokoro 配音 · 竖屏视频", ForeColor = Color.FromArgb(203, 213, 225), AutoSize = true, Location = new Point(27, 48) };
+        var title = new Label { Text = "开源项目视频工作台", ForeColor = Color.White, Font = new Font("Microsoft YaHei UI", 18, FontStyle.Bold), AutoSize = true, Location = new Point(24, 12) };
+        var subtitle = new Label { Text = "GitHub Trending / Star History", ForeColor = Color.FromArgb(203, 213, 225), AutoSize = true, Location = new Point(27, 48) };
         header.Controls.Add(title); header.Controls.Add(subtitle);
 
         var navigation = new Panel { Dock = DockStyle.Left, Width = 178, BackColor = Color.FromArgb(17, 24, 39), Padding = new Padding(12, 18, 12, 12) };
@@ -120,32 +125,45 @@ public sealed class MainForm : Form
     private Control BuildRunPage()
     {
         var root = new Panel { Dock = DockStyle.Fill, Padding = new Padding(18, 16, 18, 12) };
-        var top = new Panel { Dock = DockStyle.Top, Height = 190, BackColor = Color.White, Padding = new Padding(18, 14, 18, 14) };
-        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 5, Padding = new Padding(0), Margin = new Padding(0) };
+        var top = new Panel { Dock = DockStyle.Top, Height = 236, BackColor = Color.White, Padding = new Padding(18, 14, 18, 14) };
+        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 6, Padding = new Padding(0), Margin = new Padding(0) };
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        var title = new Label { Text = "生成本期视频", Font = new Font("Microsoft YaHei UI", 14, FontStyle.Bold), Dock = DockStyle.Fill, ForeColor = Color.FromArgb(15, 23, 42) };
-        var description = new Label { Text = "点击“生成本期视频”开始。软件会按 1 → 5 顺序执行，完成后在输出目录查看 MP4。", Dock = DockStyle.Fill, AutoEllipsis = true, ForeColor = Color.FromArgb(71, 85, 105) };
+        var title = new Label { Text = "视频制作", Font = new Font("Microsoft YaHei UI", 14, FontStyle.Bold), Dock = DockStyle.Fill, ForeColor = Color.FromArgb(15, 23, 42) };
+        var selection = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, Margin = new Padding(0), Padding = new Padding(0, 4, 0, 0) };
+        selection.Controls.Add(new Label { Text = "榜单来源", Width = 70, Height = 32, TextAlign = ContentAlignment.MiddleLeft, Margin = new Padding(0) });
+        _githubSource.Checked = _settings.LeaderboardSource != "star-history";
+        _starHistorySource.Checked = !_githubSource.Checked;
+        _githubSource.Margin = new Padding(0); _starHistorySource.Margin = new Padding(0);
+        _githubSource.CheckedChanged += (_, _) => LeaderboardSelectionChanged();
+        _starHistorySource.CheckedChanged += (_, _) => LeaderboardSelectionChanged();
+        _topNBox.Value = Math.Clamp(_settings.TrendingTopN, 1, 20); _topNBox.Width = 66; _topNBox.Margin = new Padding(0, 4, 0, 0); _topNBox.AccessibleName = "视频数量";
+        _topNBox.ValueChanged += (_, _) => LeaderboardSelectionChanged();
+        selection.Controls.AddRange([_githubSource, _starHistorySource, new Label { Text = "周榜", Width = 54, Height = 32, TextAlign = ContentAlignment.MiddleCenter, Margin = new Padding(10, 0, 0, 0) }, new Label { Text = "视频数量", Width = 70, Height = 32, TextAlign = ContentAlignment.MiddleLeft, Margin = new Padding(6, 0, 0, 0) }, _topNBox]);
+        StyleLeaderboardSelection();
         var actions = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, WrapContents = false, Margin = new Padding(0), Padding = new Padding(0, 4, 0, 0) };
-        var runButton = Button("▶  生成本期视频", Color.FromArgb(37, 99, 235), 210, 40); runButton.AccessibleName = "执行完整流程"; runButton.Click += async (_, _) => await StartRunAsync(0);
-        _resumeButton = Button("↪ 继续未完成", Color.FromArgb(14, 116, 144), 138, 34); _resumeButton.AccessibleName = "继续未完成流程"; _resumeButton.Margin = new Padding(12, 3, 0, 0); _resumeButton.Click += async (_, _) => await ResumeRunAsync();
-        var stopButton = Button("停止", Color.FromArgb(220, 38, 38), 74, 34); stopButton.Margin = new Padding(12, 3, 0, 0); stopButton.Click += (_, _) => _runCancellation?.Cancel();
-        var openButton = Button("打开输出", Color.FromArgb(71, 85, 105), 96, 34); openButton.Margin = new Padding(12, 3, 0, 0); openButton.Click += (_, _) => OpenOutputFolder();
-        var restartButton = Button("重启应用", Color.FromArgb(107, 114, 128), 96, 34); restartButton.Margin = new Padding(12, 3, 0, 0); restartButton.Click += (_, _) => RestartApplication();
-        actions.Controls.AddRange([runButton, _resumeButton, stopButton, openButton, restartButton]);
+        _newRunButton = Button("▶  生成新一期", Color.FromArgb(37, 99, 235), 154, 36); _newRunButton.AccessibleName = "执行完整流程"; _newRunButton.Click += async (_, _) => await StartRunAsync(0);
+        _resumeButton = Button("↪ 从断点继续", Color.FromArgb(14, 116, 144), 130, 34); _resumeButton.AccessibleName = "继续未完成流程"; _resumeButton.Margin = new Padding(8, 1, 0, 0); _resumeButton.Click += async (_, _) => await ResumeRunAsync();
+        var stopButton = Button("停止", Color.FromArgb(220, 38, 38), 60, 34); stopButton.Margin = new Padding(8, 1, 0, 0); stopButton.Click += (_, _) => _runCancellation?.Cancel();
+        var openButton = Button("打开输出", Color.FromArgb(71, 85, 105), 86, 34); openButton.Margin = new Padding(8, 1, 0, 0); openButton.Click += (_, _) => OpenOutputFolder();
+        var restartButton = Button("重启应用", Color.FromArgb(107, 114, 128), 86, 34); restartButton.Margin = new Padding(8, 1, 0, 0); restartButton.Click += (_, _) => RestartApplication();
+        actions.Controls.AddRange([_newRunButton, _resumeButton, stopButton, openButton, restartButton]);
         _projectLabel.Text = ProjectDisplay();
-        var progress = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, WrapContents = false, Margin = new Padding(0), Padding = new Padding(0, 2, 0, 0) };
-        _runLabel.Margin = new Padding(0, 2, 18, 0); _overallProgress.Margin = new Padding(0, 3, 12, 0); _overallLabel.Margin = new Padding(0, 2, 18, 0); _overallEtaLabel.Margin = new Padding(0, 2, 0, 0);
-        progress.Controls.AddRange([_runLabel, _overallProgress, _overallLabel, _overallEtaLabel]);
-        layout.Controls.Add(title, 0, 0); layout.Controls.Add(description, 0, 1); layout.Controls.Add(actions, 0, 2); layout.Controls.Add(_projectLabel, 0, 3); layout.Controls.Add(progress, 0, 4);
+        var progress = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 4, RowCount = 1, Margin = new Padding(0), Padding = new Padding(0, 2, 0, 0) };
+        progress.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150)); progress.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); progress.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 140)); progress.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150));
+        _runLabel.Dock = DockStyle.Fill; _overallProgress.Dock = DockStyle.Fill; _overallEtaLabel.Dock = DockStyle.Fill;
+        _runLabel.Margin = new Padding(0, 2, 12, 0); _overallProgress.Margin = new Padding(0, 5, 12, 8); _overallLabel.Margin = new Padding(0, 2, 8, 0); _overallEtaLabel.Margin = new Padding(0, 2, 0, 0);
+        progress.Controls.Add(_runLabel, 0, 0); progress.Controls.Add(_overallProgress, 1, 0); progress.Controls.Add(_overallLabel, 2, 0); progress.Controls.Add(_overallEtaLabel, 3, 0);
+        layout.Controls.Add(title, 0, 0); layout.Controls.Add(selection, 0, 1); layout.Controls.Add(_leaderboardLabel, 0, 2); layout.Controls.Add(actions, 0, 3); layout.Controls.Add(_projectLabel, 0, 4); layout.Controls.Add(progress, 0, 5);
         top.Controls.Add(layout);
 
         foreach (var (label, descriptionText, key) in new[]
         {
-            ("节点 1 · 采集周榜", "读取 GitHub Trending 周榜并保存本期快照。", "trending"),
+            ("节点 1 · 采集榜单", "读取所选来源的周榜并保存本期快照。", "trending"),
             ("节点 2 · 收集项目资料", $"获取前 {_settings.TrendingTopN} 个仓库的 GitHub API 信息和 README。", "repos"),
             ("节点 3 · 生成讲稿", "按固定 9 段结构生成或读取缓存讲稿。", "scripts"),
             ("节点 4 · 生成中文配音", "用本机 Kokoro 按场景合成 WAV，并检查时长。", "tts"),
@@ -203,10 +221,6 @@ public sealed class MainForm : Form
         AddReasoningEffortSetting(table);
         AddSetting(table, "模型 API Key", "apiKey", _settings.OpenAiApiKey, "必填；保存时加密", password: true);
         AddSetting(table, "GitHub Token", "githubToken", _settings.GithubToken, "可选，用于降低公开 API 限流", password: true);
-        var topNLabel = new Label { Text = "周榜项目数量", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(0, 12, 12, 12) };
-        _topNBox.Value = Math.Clamp(_settings.TrendingTopN, (int)_topNBox.Minimum, (int)_topNBox.Maximum); _topNBox.Margin = new Padding(0, 8, 12, 8);
-        var topNHelp = new Label { Text = "节点 2 获取周榜前 N 个项目（1–20）", AutoSize = true, ForeColor = Color.FromArgb(100, 116, 139), Margin = new Padding(0, 12, 0, 12), MaximumSize = new Size(300, 0) };
-        table.RowStyles.Add(new RowStyle(SizeType.AutoSize)); table.Controls.Add(topNLabel, 0, table.RowCount); table.Controls.Add(_topNBox, 1, table.RowCount); table.Controls.Add(topNHelp, 2, table.RowCount); table.RowCount++;
         AddSetting(table, "Kokoro 模型", "kokoroModel", _settings.KokoroModel, "默认 hexgrad/Kokoro-82M-v1.1-zh");
         AddVoiceSetting(table);
         AddSetting(table, "视频动态背景", "background", _settings.VideoBackgroundPath, "支持 MP4 / GIF；留空使用纯白底，下次渲染生效", browse: true);
@@ -616,6 +630,46 @@ public sealed class MainForm : Form
 
     private static Button Button(string text, Color color, int width, int height) => new() { Text = text, Width = width, Height = height, BackColor = color, ForeColor = Color.White, FlatStyle = FlatStyle.Flat, FlatAppearance = { BorderSize = 0 }, Cursor = Cursors.Hand };
 
+    private void StyleLeaderboardSelection()
+    {
+        foreach (var button in new[] { _githubSource, _starHistorySource })
+        {
+            button.UseVisualStyleBackColor = false;
+            button.BackColor = button.Checked ? Color.FromArgb(14, 116, 144) : Color.FromArgb(241, 245, 249);
+            button.ForeColor = button.Checked ? Color.White : Color.FromArgb(51, 65, 85);
+            button.FlatAppearance.BorderColor = Color.FromArgb(203, 213, 225);
+        }
+    }
+
+    private void LeaderboardSelectionChanged()
+    {
+        StyleLeaderboardSelection();
+        if (_updatingLeaderboard || (!_githubSource.Checked && !_starHistorySource.Checked)) return;
+        _settings.LeaderboardSource = _starHistorySource.Checked ? "star-history" : "github-trending";
+        _settings.TrendingTopN = (int)_topNBox.Value;
+        try { _settingsStore.Save(_settings); }
+        catch (Exception error) { AppendLog($"榜单配置保存失败：{error.Message}"); }
+    }
+
+    private void ShowLeaderboardInfo(LeaderboardRunInfo info, bool captured = true, bool updateSelection = true)
+    {
+        _leaderboardLabel.Text = $"当前期次：{info.Name}  ·  {info.TopN} 个项目  ·  {(captured ? info.PeriodLabel : "统计区间待采集")}";
+        _updatingLeaderboard = true;
+        try
+        {
+            if (updateSelection)
+            {
+                _starHistorySource.Checked = info.Source == "star-history";
+                _githubSource.Checked = !_starHistorySource.Checked;
+                _topNBox.Value = info.TopN;
+            }
+            StyleLeaderboardSelection();
+        }
+        finally { _updatingLeaderboard = false; }
+        _cards.GetValueOrDefault(0)?.SetDescription($"采集 {info.Name}并保存本期快照。");
+        _cards.GetValueOrDefault(1)?.SetDescription($"获取前 {info.TopN} 个仓库的 GitHub API 信息和 README。");
+    }
+
     private void WireEvents()
     {
         _pipeline.StepChanged += (index, status, progress) => Ui(() =>
@@ -658,6 +712,7 @@ public sealed class MainForm : Form
         _pipeline.StepActivityChanged += (index, activity) => Ui(() => { _nodeActivities[index] = activity; UpdateEtaDisplay(); });
         _pipeline.LogLine += line => Ui(() => AppendLog(line));
         _pipeline.RunIdChanged += runId => Ui(() => { _runLabel.Text = $"正在运行 · {runId}"; _runLabel.ForeColor = Color.FromArgb(37, 99, 235); UpdateEtaDisplay(); });
+        _pipeline.LeaderboardChanged += (info, captured) => Ui(() => ShowLeaderboardInfo(info, captured));
     }
 
     private async Task StartRunAsync(int startIndex)
@@ -841,6 +896,8 @@ public sealed class MainForm : Form
     {
         foreach (var card in _cards.Values) card.SetRunEnabled(enabled);
         if (_resumeButton is not null) _resumeButton.Enabled = enabled;
+        if (_newRunButton is not null) _newRunButton.Enabled = enabled;
+        _githubSource.Enabled = enabled; _starHistorySource.Enabled = enabled; _topNBox.Enabled = enabled;
     }
 
     private async Task RefreshAllAsync()
@@ -860,6 +917,8 @@ public sealed class MainForm : Form
             using var doc = JsonDocument.Parse(await File.ReadAllTextAsync(latest)); var runId = doc.RootElement.GetProperty("runId").GetString(); if (string.IsNullOrWhiteSpace(runId)) return;
             var reportFile = Path.Combine(output, runId, "run-report.json"); if (!File.Exists(reportFile)) return;
             var report = JsonSerializer.Deserialize<PipelineReport>(await File.ReadAllTextAsync(reportFile)); if (report is null) return;
+            var leaderboard = await LeaderboardRunInfo.ReadAsync(Path.Combine(output, runId), report.TopN ?? _settings.TrendingTopN);
+            if (leaderboard is not null) ShowLeaderboardInfo(leaderboard, updateSelection: false);
             _nodeDurationsSeconds.Clear();
             foreach (var (label, seconds) in report.NodeDurationsSeconds ?? [])
                 if (label.StartsWith("节点 ") && int.TryParse(label[3..], out var node) && node is >= 1 and <= 5) _nodeDurationsSeconds[node - 1] = Math.Max(0.1, seconds);
@@ -950,6 +1009,7 @@ public sealed class MainForm : Form
         if (_settingBoxes.TryGetValue("baseUrl", out var baseUrlBox)) baseUrlBox.Text = _settings.OpenAiBaseUrl;
         _settings.GithubToken = _settingBoxes.GetValueOrDefault("githubToken")?.Text ?? _settings.GithubToken;
         _settings.TrendingTopN = (int)_topNBox.Value;
+        _settings.LeaderboardSource = _starHistorySource.Checked ? "star-history" : "github-trending";
         _settings.KokoroModel = _settingBoxes.GetValueOrDefault("kokoroModel")?.Text.Trim() ?? _settings.KokoroModel;
         _settings.KokoroVoice = _voiceBox.SelectedItem?.ToString() ?? _settings.KokoroVoice;
         _settings.RemotionBrowserExecutable = _settingBoxes.GetValueOrDefault("browser")?.Text.Trim() ?? _settings.RemotionBrowserExecutable;

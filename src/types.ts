@@ -1,3 +1,13 @@
+export type LeaderboardSource = "github-trending" | "star-history";
+
+export type LeaderboardContext = {
+  source: LeaderboardSource;
+  period: "weekly";
+  sourceUrl: string;
+  periodStart: string | null;
+  periodEnd: string | null;
+};
+
 export type TrendingRepo = {
   rank: number;
   owner: string;
@@ -8,6 +18,7 @@ export type TrendingRepo = {
   language: string | null;
   totalStars: number | null;
   starsThisWeek: number | null;
+  leaderboard?: LeaderboardContext;
 };
 
 export type TrendingSnapshot = {
@@ -15,6 +26,8 @@ export type TrendingSnapshot = {
   period: "weekly";
   sourceUrl: string;
   repos: TrendingRepo[];
+  leaderboard?: LeaderboardContext;
+  topN?: number;
 };
 
 export type RepoFacts = TrendingRepo & {
@@ -107,6 +120,7 @@ export type ProjectScript = {
   conceptStoryboard?: ConceptStoryboard;
   narrationSegments: NarrationSegment[];
   sources: string[];
+  leaderboard?: LeaderboardContext;
 };
 
 export type RenderProject = Omit<ProjectScript, "narrationSegments"> & {

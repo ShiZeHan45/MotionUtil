@@ -1,6 +1,8 @@
 # GitHub Trending 项目视频生成器
 
-这是一个读取 GitHub 本周热门项目榜单、为配置数量的项目准备介绍稿、生成中文配音并制作竖屏视频的工具。节点 2 的项目数量可在桌面端“设置”中调整，也可以用 `GITHUB_TOP_N` 配置。现在提供 Windows Forms 桌面端，常见操作不需要打开 PowerShell。
+这是一个读取 GitHub Trending 热门周榜或 Star History 涨星周榜、为配置数量的项目准备介绍稿、生成中文配音并制作竖屏视频的工具。在桌面端“视频制作”顶部选择榜单来源和视频数量，也可以用 `LEADERBOARD_SOURCE` 与 `GITHUB_TOP_N` 配置。现在提供 Windows Forms 桌面端，常见操作不需要打开 PowerShell。
+
+每期保存榜单来源、原始名次、统计日期和项目数量。Star History 使用页面提供的实际统计区间与精确新增 Stars；GitHub Trending 保留原始热门排名，不按 Stars 重新排序。继续期次时沿用原榜单快照。视频节目名统一为“开源项目观察”，开场及口播明确区分两个来源。
 
 ## 桌面软件（推荐）
 

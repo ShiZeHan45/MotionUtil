@@ -20,6 +20,7 @@ public sealed class SettingsStore(RuntimePaths paths)
         public string OpenAiApiKey { get; set; } = "";
         public string GithubToken { get; set; } = "";
         public int TrendingTopN { get; set; } = 5;
+        public string LeaderboardSource { get; set; } = "github-trending";
         public string KokoroModel { get; set; } = "hexgrad/Kokoro-82M-v1.1-zh";
         public string KokoroVoice { get; set; } = "zf_001";
         public string KokoroDevice { get; set; } = "cpu";
@@ -45,6 +46,7 @@ public sealed class SettingsStore(RuntimePaths paths)
                 OpenAiApiKey = apiKey,
                 GithubToken = TryUnprotect(stored.GithubToken),
                 TrendingTopN = Math.Clamp(stored.TrendingTopN, 1, 20),
+                LeaderboardSource = AppSettings.NormalizeLeaderboardSource(stored.LeaderboardSource),
                 KokoroModel = stored.KokoroModel,
                 KokoroVoice = stored.KokoroVoice,
                 KokoroDevice = stored.KokoroDevice,
@@ -77,6 +79,7 @@ public sealed class SettingsStore(RuntimePaths paths)
             OpenAiApiKey = Protect(settings.OpenAiApiKey),
             GithubToken = Protect(settings.GithubToken),
             TrendingTopN = Math.Clamp(settings.TrendingTopN, 1, 20),
+            LeaderboardSource = AppSettings.NormalizeLeaderboardSource(settings.LeaderboardSource),
             KokoroModel = settings.KokoroModel.Trim(),
             KokoroVoice = settings.KokoroVoice.Trim(),
             KokoroDevice = settings.KokoroDevice,

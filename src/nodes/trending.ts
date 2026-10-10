@@ -3,6 +3,8 @@ import { writeFile } from "node:fs/promises";
 import type { TrendingRepo, TrendingSnapshot } from "../types";
 import { config } from "../lib/config";
 import { writeJson } from "../lib/io";
+import { leaderboardPresentation } from "../lib/leaderboard";
+import { parseStarHistoryHtml } from "./star-history";
 
 function countFromText(text: string): number | null {
   const clean = text.trim().replaceAll(",", "").replace(/\s+/g, " ");
@@ -49,11 +51,13 @@ export function parseTrendingHtml(html: string, sourceUrl: string, capturedAt = 
     });
   }
   if (repos.length < config.githubTopN) throw new Error(`GitHub Trending 解析结果只有 ${repos.length} 个仓库（配置需要前 ${config.githubTopN} 个），停止处理。`);
-  return { capturedAt, period: "weekly", sourceUrl, repos };
+  const leaderboard = { source: "github-trending" as const, period: "weekly" as const, sourceUrl, periodStart: null, periodEnd: null };
+  return { capturedAt, period: "weekly", sourceUrl, repos: repos.map((repo) => ({ ...repo, leaderboard })), leaderboard, topN: config.githubTopN };
 }
 
 export async function collectTrending(outputJson: string, rawHtmlPath: string): Promise<TrendingSnapshot> {
-  const response = await fetch(config.githubTrendingUrl, {
+  const sourceUrl = config.leaderboardSource === "star-history" ? "https://www.star-history.com/" : config.githubTrendingUrl;
+  const response = await fetch(sourceUrl, {
     headers: {
       "user-agent": "GitHub-Trending-Video/0.1 (+local content tool)",
       "accept": "text/html,application/xhtml+xml",
@@ -61,9 +65,12 @@ export async function collectTrending(outputJson: string, rawHtmlPath: string): 
     },
     signal: AbortSignal.timeout(30_000),
   });
-  if (!response.ok) throw new Error(`GitHub Trending 请求失败：HTTP ${response.status} ${response.statusText}`);
+  if (!response.ok) throw new Error(`榜单请求失败：HTTP ${response.status} ${response.statusText}`);
   const html = await response.text();
-  const snapshot = parseTrendingHtml(html, config.githubTrendingUrl);
+  const snapshot = config.leaderboardSource === "star-history"
+    ? parseStarHistoryHtml(html, sourceUrl)
+    : parseTrendingHtml(html, sourceUrl);
+  console.log(`[节点 1] ${leaderboardPresentation(snapshot.leaderboard).name}；统计区间：${leaderboardPresentation(snapshot.leaderboard).dateLabel || "来源未提供固定起止日期"}`);
   await Promise.all([writeJson(outputJson, snapshot), writeFile(rawHtmlPath, html, "utf8")]);
   return snapshot;
 }

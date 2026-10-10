@@ -1,5 +1,6 @@
 import "dotenv/config";
 import path from "node:path";
+import { parseLeaderboardSource } from "./leaderboard";
 
 const buzzBaseUrl = "https://api.buzzai.cc/v1";
 const apiKey = process.env.OPENAI_API_KEY?.trim();
@@ -12,6 +13,7 @@ const reasoningEffort = configuredReasoningEffort === "low" || configuredReasoni
   : undefined;
 
 export const config = {
+  leaderboardSource: parseLeaderboardSource(process.env.LEADERBOARD_SOURCE?.trim()),
   githubToken: process.env.GITHUB_TOKEN,
   githubTrendingUrl: process.env.GITHUB_TRENDING_URL ?? "https://github.com/trending?since=weekly",
   githubTopN: Math.max(1, Math.min(20, Number.parseInt(process.env.GITHUB_TOP_N ?? "5", 10) || 5)),

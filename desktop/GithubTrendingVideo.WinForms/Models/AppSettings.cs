@@ -17,6 +17,7 @@ public sealed class AppSettings
     public string OpenAiApiKey { get; set; } = "";
     public string GithubToken { get; set; } = "";
     public int TrendingTopN { get; set; } = 5;
+    public string LeaderboardSource { get; set; } = "github-trending";
     public string KokoroModel { get; set; } = "hexgrad/Kokoro-82M-v1.1-zh";
     public string KokoroVoice { get; set; } = "zf_001";
     public string KokoroDevice { get; set; } = "cpu";
@@ -32,6 +33,8 @@ public sealed class AppSettings
         "xhigh" => "xhigh",
         _ => "",
     };
+
+    public static string NormalizeLeaderboardSource(string? value) => value == "star-history" ? "star-history" : "github-trending";
 }
 
 public sealed class PipelineReport
@@ -44,6 +47,8 @@ public sealed class PipelineReport
     public string? FailedAt { get; set; }
     public string? Error { get; set; }
     public Dictionary<string, double> NodeDurationsSeconds { get; set; } = [];
+    public string LeaderboardSource { get; set; } = "github-trending";
+    public int? TopN { get; set; }
 }
 
 public sealed record RunSummary(string RunId, string Status, int VideoCount, string Directory, DateTimeOffset? ModifiedAt);

@@ -5,7 +5,7 @@ import { existsSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import path from "node:path";
-import type { RenderProject, TrendingRepo } from "../types";
+import type { LeaderboardContext, RenderProject, TrendingRepo } from "../types";
 import { config } from "../lib/config";
 import { repoSlug } from "../lib/paths";
 import { writeJson } from "../lib/io";
@@ -106,7 +106,7 @@ async function stageAssets(project: RenderProject, runId: string): Promise<Rende
   return { ...project, narrationSegments: segments, visualAssets };
 }
 
-export async function renderVideos(projects: RenderProject[], leaderboard: TrendingRepo[], outputDirectory: string, runId: string): Promise<string[]> {
+export async function renderVideos(projects: RenderProject[], leaderboard: TrendingRepo[], outputDirectory: string, runId: string, leaderboardContext?: LeaderboardContext, topN?: number): Promise<string[]> {
   const selected = projects.slice().sort((a, b) => a.rank - b.rank);
   if (!selected.length) throw new Error("节点 5 没有收到待渲染的项目");
   await mkdir(outputDirectory, { recursive: true });
@@ -123,7 +123,7 @@ export async function renderVideos(projects: RenderProject[], leaderboard: Trend
   process.stdout.write("\n");
   const output: string[] = [];
   for (const [index, project] of inputProjects.entries()) {
-    const inputProps: VideoProps = { project, leaderboard, background: background?.asset, backgroundFrames: background?.backgroundFrames, backgroundDurationInFrames: background?.durationInFrames };
+    const inputProps: VideoProps = { project, leaderboard: leaderboard.slice(0, topN ?? projects.length), leaderboardContext, background: background?.asset, backgroundFrames: background?.backgroundFrames, backgroundDurationInFrames: background?.durationInFrames };
     const composition = await selectComposition({
       serveUrl,
       id: "ProjectVideo",
