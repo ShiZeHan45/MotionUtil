@@ -574,7 +574,7 @@ function ChapterProgress({ project }: { project: RenderProject }) {
   const totalFrames = project.narrationSegments.reduce((total, segment) => total + framesForMs(segment.durationMs), 0);
   const position = Math.max(0, Math.min(totalFrames, frame));
   const groups = [
-    { label: "排行", scenes: ["intro"] },
+    { label: "开场", scenes: ["intro"] },
     { label: "讲解", scenes: ["problem", "concept"] },
     { label: "案例", scenes: ["case", "dashboard"] },
     { label: "操作", scenes: ["setup", "workflow"] },
@@ -597,10 +597,10 @@ function ChapterProgress({ project }: { project: RenderProject }) {
       const groupProgress = frames ? Math.min(100, Math.max(0, ((position - groupStart) / frames) * 100)) : 0;
       const completed = index < currentChapter || (index === currentChapter && groupProgress >= 100);
       const active = index === currentChapter && !completed;
-      const fillColor = completed ? palette.tealLight : active ? "#F6B8AA" : "transparent";
+      const fillColor = completed ? palette.teal : active ? palette.coral : "transparent";
       const fill = completed ? 100 : active ? groupProgress : 0;
       const baseColor = index <= currentChapter ? "rgba(255,255,255,.86)" : "rgba(255,255,255,.52)";
-      return <div key={group.label} style={{ position: "relative", flex: 1, minWidth: 0, display: "grid", placeItems: "center", borderLeft: index === 0 ? "none" : `2px solid rgba(20,52,74,.2)`, background: `linear-gradient(90deg, ${fillColor} ${fill}%, ${baseColor} ${fill}%)`, color: index <= currentChapter ? palette.ink : palette.muted, fontSize: group.label.length > 4 ? 15 : 17, fontWeight: 950, textAlign: "center" }}><span style={{ position: "relative", zIndex: 1, whiteSpace: "nowrap", padding: "0 5px" }}>{group.label}</span></div>;
+      return <div key={group.label} style={{ position: "relative", flex: 1, minWidth: 0, display: "grid", placeItems: "center", borderLeft: index === 0 ? "none" : `2px solid rgba(20,52,74,.2)`, background: `linear-gradient(90deg, ${fillColor} ${fill}%, ${baseColor} ${fill}%)`, color: completed ? "white" : active ? palette.ink : palette.muted, fontSize: group.label.length > 4 ? 15 : 17, fontWeight: 950, textAlign: "center", textShadow: completed ? "0 1px 0 rgba(20,52,74,.25)" : "none" }}><span style={{ position: "relative", zIndex: 1, whiteSpace: "nowrap", padding: "0 5px" }}>{group.label}</span></div>;
     })}
   </div>;
 }
