@@ -331,6 +331,8 @@ export async function generateScripts(facts: RepoFacts[], outputDirectory: strin
       validateScriptCoverage(script, item, timing);
       if (estimateNarration(script, timing).durationMs > MAX_VIDEO_DURATION_MS) throw new Error("缓存讲稿超出当前配音时长预算");
       cached.set(item.fullName.toLowerCase(), { ...script, visualAssets: item.visualAssets });
+      await writeJson(path.join(outputDirectory, `${repoSlug(item.fullName)}.json`), cached.get(item.fullName.toLowerCase()));
+      console.log(`[节点 3] ${cached.size}/${facts.length} ${item.fullName} 讲稿已复用缓存`);
       validationReport.push({ repo: item.fullName, status: "passed", issues: [] });
     } catch {
       pending.push(item);
@@ -339,7 +341,7 @@ export async function generateScripts(facts: RepoFacts[], outputDirectory: strin
   if (pending.length) {
     console.log(`[节点 3] 为 ${pending.length} 个未缓存项目逐个生成讲稿，避免单次请求超时`);
     for (const item of pending) {
-      console.log(`[节点 3] 正在生成 ${item.fullName} 的九段讲稿`);
+      console.log(`[节点 3] 正在生成 ${item.fullName} 的九段讲稿（${cached.size + 1}/${facts.length}）`);
       let generated: ProjectScript[];
       try {
         generated = await generateBatch([item], timing);

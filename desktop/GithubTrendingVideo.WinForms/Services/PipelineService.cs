@@ -70,6 +70,7 @@ public sealed class PipelineService(RuntimePaths paths, ProcessRunner processes,
                 _compressingScript = false;
                 _modelActivity = "生成讲稿";
                 _modelRetry = "";
+                _modelProject = "";
                 StepChanged?.Invoke(index, "运行中", 2);
                 LogLine?.Invoke($"\n── 节点 {index + 1}/5 · {Labels[index]} ──");
                 var node = environment.NodeExecutable ?? throw new InvalidOperationException("找不到 Node.js。请先到“环境与下载”安装运行环境。");
@@ -165,6 +166,7 @@ public sealed class PipelineService(RuntimePaths paths, ProcessRunner processes,
     private bool _compressingScript;
     private string _modelActivity = "生成讲稿";
     private string _modelRetry = "";
+    private string _modelProject = "";
     private DateTimeOffset? _activeStartedAt;
     private int FindActiveStepIndex() => _activeIndex;
 
@@ -174,13 +176,17 @@ public sealed class PipelineService(RuntimePaths paths, ProcessRunner processes,
         else if (line.Contains("自动压缩", StringComparison.Ordinal) || line.Contains("正在压缩", StringComparison.Ordinal)) _modelActivity = "压缩讲稿";
         else if (line.StartsWith("[节点 3] 正在生成 ", StringComparison.Ordinal)) _modelActivity = "生成讲稿";
         if (line.StartsWith("[节点 3] 请求接口：", StringComparison.Ordinal)) _modelRetry = "";
-        var retry = System.Text.RegularExpressions.Regex.Match(line, @"网络波动，正在重试（第 (\d+)/(\d+) 次）");
+        var project = System.Text.RegularExpressions.Regex.Match(line, @"^\[节点 3\] 正在生成 (.+?) 的九段讲稿（(\d+)/(\d+)）");
+        if (project.Success) _modelProject = $"{project.Groups[2].Value}/{project.Groups[3].Value} {project.Groups[1].Value}";
+        var retry = System.Text.RegularExpressions.Regex.Match(line, @"(?:网络波动|服务无响应)，正在重试（第 (\d+)/(\d+) 次）");
         var received = System.Text.RegularExpressions.Regex.Match(line, @"已接收 (\d+) 字符");
         if (retry.Success) _modelRetry = $"网络重试 {retry.Groups[1].Value}/{retry.Groups[2].Value}";
         var phase = string.IsNullOrEmpty(_modelRetry) ? _modelActivity : _modelRetry;
         var activity = received.Success ? $"{phase} · 已接收 {received.Groups[1].Value} 字符"
-            : line.Contains("已等待", StringComparison.Ordinal) ? $"{phase} · 等待模型"
+            : line.Contains("等待服务响应", StringComparison.Ordinal) ? $"{phase} · 等待服务响应"
+            : line.Contains("已连接", StringComparison.Ordinal) ? $"{phase} · 已连接，等待正文"
             : phase;
+        if (!string.IsNullOrEmpty(_modelProject)) activity = $"{_modelProject} · {activity}";
         StepActivityChanged?.Invoke(2, activity);
     }
 

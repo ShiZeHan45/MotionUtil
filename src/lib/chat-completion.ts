@@ -32,6 +32,28 @@ class ModelRequestError extends Error {
   }
 }
 
+// Buzz 的 xhigh 请求可能先思考数分钟才发送正文；允许覆盖已观测到的
+// 约 270 秒首包延迟，同时仍能把真正无响应的请求交给重试机制。
+const MODEL_IDLE_TIMEOUT_MS = 360_000;
+
+async function readResponseText(response: Response, onActivity: () => void): Promise<string> {
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (value?.length) onActivity();
+      text += decoder.decode(value, { stream: !done });
+      if (done) return text;
+    }
+  } finally {
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
+}
+
 function safeMessage(message: string): string {
   return (config.openAiApiKey ? message.replaceAll(config.openAiApiKey, "[API Key]") : message).slice(0, 500);
 }
@@ -47,10 +69,10 @@ function isRetryableStreamError(message: string): boolean {
     || /\bupstream\b.{0,80}\b(?:error|failed|failure|unavailable|timeout|timed out|closed|reset)\b/i.test(message);
 }
 
-async function readCompletion(response: Response, onContent: (length: number) => void): Promise<string> {
+async function readCompletion(response: Response, onContent: (length: number) => void, onActivity: () => void): Promise<string> {
   if (!(response.headers.get("content-type") ?? "").includes("text/event-stream")) {
     // Compatible services may return a JSON body regardless of the stream setting.
-    const body = await response.json() as CompletionChunk;
+    const body = JSON.parse(await readResponseText(response, onActivity)) as CompletionChunk;
     if (body.error) {
       const message = getErrorMessage(body.error);
       throw new ModelRequestError(safeMessage(message), isRetryableStreamError(message));
@@ -91,6 +113,7 @@ async function readCompletion(response: Response, onContent: (length: number) =>
   try {
     while (!complete) {
       const { value, done } = await reader.read();
+      if (value?.length) onActivity();
       buffer += decoder.decode(value, { stream: !done });
       const events = buffer.split(/\r\n\r\n|\n\n|\r\r/);
       buffer = events.pop() ?? "";
@@ -132,10 +155,10 @@ function validateResponseStatus(result: ResponsesResult): void {
   }
 }
 
-async function readResponsesCompletion(response: Response, onContent: (length: number) => void): Promise<string> {
+async function readResponsesCompletion(response: Response, onContent: (length: number) => void, onActivity: () => void): Promise<string> {
   const contentType = response.headers.get("content-type") ?? "";
   if (!contentType.includes("text/event-stream")) {
-    const body = await response.json() as ResponsesResult;
+    const body = JSON.parse(await readResponseText(response, onActivity)) as ResponsesResult;
     validateResponseStatus(body);
     const content = responseText(body);
     if (!content.trim()) throw new ModelRequestError("讲稿模型返回为空", true);
@@ -178,6 +201,7 @@ async function readResponsesCompletion(response: Response, onContent: (length: n
   try {
     while (!complete) {
       const { value, done } = await reader.read();
+      if (value?.length) onActivity();
       buffer += decoder.decode(value, { stream: !done });
       const events = buffer.split(/\r\n\r\n|\n\n|\r\r/);
       buffer = events.pop() ?? "";
@@ -215,8 +239,20 @@ export async function requestChatCompletion(messages: ChatMessage[]): Promise<st
   for (let attempt = 1; attempt <= attempts; attempt++) {
     const started = Date.now();
     let received = 0;
+    let phase = "等待服务响应";
+    let lastActivity = started;
+    let idleTimer: ReturnType<typeof setTimeout>;
+    const requestController = new AbortController();
+    const requestTimer = setTimeout(() => requestController.abort(new ModelRequestError("模型请求总时长超过限制", true)), effort === "xhigh" ? 600_000 : 300_000);
+    // Include connection setup and response headers in the idle deadline.
+    const onActivity = () => {
+      lastActivity = Date.now();
+      clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => requestController.abort(new ModelRequestError(`服务连续 ${Math.floor(MODEL_IDLE_TIMEOUT_MS / 1_000)} 秒未返回数据`, true)), MODEL_IDLE_TIMEOUT_MS);
+    };
+    onActivity();
     const heartbeat = setInterval(() => {
-      console.log(`[节点 3] ${serviceHost} 已等待 ${Math.floor((Date.now() - started) / 1_000)} 秒，${received ? `已接收 ${received} 字符` : "模型正在生成"}`);
+      console.log(`[节点 3] ${serviceHost} 已等待 ${Math.floor((Date.now() - started) / 1_000)} 秒，${received ? `已接收 ${received} 字符` : phase}；连续无数据 ${Math.floor((Date.now() - lastActivity) / 1_000)} 秒`);
     }, 15_000);
     heartbeat.unref();
     let failure: ModelRequestError;
@@ -226,10 +262,13 @@ export async function requestChatCompletion(messages: ChatMessage[]): Promise<st
         redirect: "error",
         headers: { "content-type": "application/json", authorization: `Bearer ${config.openAiApiKey}` },
         body: JSON.stringify(requestBody),
-        signal: AbortSignal.timeout(effort === "xhigh" ? 600_000 : 300_000),
+        signal: requestController.signal,
       });
+      phase = "已连接，等待正文";
+      onActivity();
+      console.log(`[节点 3] 服务已连接，等待正文`);
       if (!response.ok) {
-        const body = await response.text();
+        const body = await readResponseText(response, onActivity);
         let detail = "";
         if (!body.trimStart().startsWith("<")) {
           try { detail = getErrorMessage((JSON.parse(body) as CompletionChunk).error) || body; }
@@ -243,10 +282,14 @@ export async function requestChatCompletion(messages: ChatMessage[]): Promise<st
         throw new ModelRequestError(`${service} 返回 HTTP ${response.status}${detail ? `：${safeMessage(detail)}` : response.status === 524 ? "：服务网关等待模型超时" : ""}`, retryable, Math.min(20_000, retryAfterMs || 0));
       }
       return await (useResponses
-        ? readResponsesCompletion(response, (length) => { received = length; })
-        : readCompletion(response, (length) => { received = length; }));
+        ? readResponsesCompletion(response, (length) => { received = length; }, onActivity)
+        : readCompletion(response, (length) => { received = length; }, onActivity));
     } catch (error) {
       if (error instanceof ModelRequestError) failure = error;
+      else if (requestController.signal.aborted) {
+        const reason = requestController.signal.reason instanceof Error ? requestController.signal.reason.message : "模型请求超时";
+        failure = new ModelRequestError(`${service} ${reason}`, true);
+      }
       else {
         const cause = error instanceof Error && "cause" in error ? error.cause as { code?: string } | undefined : undefined;
         const detail = error instanceof Error ? error.message : String(error);
@@ -254,13 +297,17 @@ export async function requestChatCompletion(messages: ChatMessage[]): Promise<st
       }
     } finally {
       clearInterval(heartbeat);
+      clearTimeout(requestTimer);
+      clearTimeout(idleTimer!);
+      requestController.abort();
     }
     if (!failure.retryable || attempt === attempts) {
       const retrySummary = failure.retryable ? `网络重试 ${maxRetries} 次后仍失败` : "非网络错误，未重试";
       throw new Error(`节点 3 讲稿请求失败（模型 ${config.openAiModel}）：${failure.message}。${retrySummary}。已生成项目的缓存已保留，可从节点 3 继续。`);
     }
     const delayMs = Math.max(attempt * 2_000, failure.retryAfterMs);
-    console.log(`[节点 3] 网络波动，正在重试（第 ${attempt}/${maxRetries} 次）`);
+    const reason = failure.message.includes("未返回数据") ? "服务无响应" : "网络波动";
+    console.log(`[节点 3] ${reason}，正在重试（第 ${attempt}/${maxRetries} 次）；${failure.message}`);
     await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
   throw new Error("讲稿模型请求未完成");
