@@ -32,9 +32,9 @@ class ModelRequestError extends Error {
   }
 }
 
-// Buzz 的 xhigh 请求可能先思考数分钟才发送正文；允许覆盖已观测到的
-// 约 270 秒首包延迟，同时仍能把真正无响应的请求交给重试机制。
-const MODEL_IDLE_TIMEOUT_MS = 360_000;
+// Buzz 的 xhigh 请求可能先思考数分钟才发送正文；每次尝试允许连续
+// 20 分钟没有响应数据，再交给网络重试机制。请求本身不设总时长上限。
+const MODEL_IDLE_TIMEOUT_MS = 1_200_000;
 
 async function readResponseText(response: Response, onActivity: () => void): Promise<string> {
   if (!response.body) return "";
@@ -233,9 +233,9 @@ export async function requestChatCompletion(messages: ChatMessage[]): Promise<st
     ? { model: config.openAiModel, stream: true, store: false, input: messages, ...(effort ? { reasoning: { effort } } : {}) }
     : { model: config.openAiModel, stream: false, messages, ...(effort ? { reasoning_effort: effort } : { temperature: 0.35 }) };
   console.log(`[节点 3] 请求接口：${useResponses ? "Responses API" : "Chat Completions"}；思考强度：${effort ?? "自动"}`);
-  // A VPN can briefly drop the connection. Keep the retry loop bounded while
-  // giving transient network failures five chances to recover automatically.
-  const maxRetries = 5;
+  // A VPN can briefly drop the connection. Give transient network failures
+  // three automatic retries; each attempt is governed only by the idle limit.
+  const maxRetries = 3;
   const attempts = maxRetries + 1;
   for (let attempt = 1; attempt <= attempts; attempt++) {
     const started = Date.now();
@@ -244,7 +244,6 @@ export async function requestChatCompletion(messages: ChatMessage[]): Promise<st
     let lastActivity = started;
     let idleTimer: ReturnType<typeof setTimeout>;
     const requestController = new AbortController();
-    const requestTimer = setTimeout(() => requestController.abort(new ModelRequestError("模型请求总时长超过限制", true)), effort === "xhigh" ? 600_000 : 300_000);
     // Include connection setup and response headers in the idle deadline.
     const onActivity = () => {
       lastActivity = Date.now();
@@ -298,7 +297,6 @@ export async function requestChatCompletion(messages: ChatMessage[]): Promise<st
       }
     } finally {
       clearInterval(heartbeat);
-      clearTimeout(requestTimer);
       clearTimeout(idleTimer!);
       requestController.abort();
     }

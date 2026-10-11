@@ -88,7 +88,7 @@ test("Responses failure reports the actual parameter error", async (context) => 
   assert.equal(fetchMock.mock.callCount(), 1);
 });
 
-test("partial Responses streams retry five times and never succeed", async (context) => {
+test("partial Responses streams retry three times and never succeed", async (context) => {
   Object.assign(config, { openAiModel: "gpt-6.1-sol", openAiReasoningEffort: "xhigh" });
   context.after(() => Object.assign(config, originalConfig));
   context.mock.method(console, "log", () => {});
@@ -99,6 +99,6 @@ test("partial Responses streams retry five times and never succeed", async (cont
   const fetchMock = context.mock.method(globalThis, "fetch", async () => stream(
     event("response.output_text.delta", { delta: "未完成" }) + "data: [DONE]\r\n\r\n",
   ));
-  await assert.rejects(requestChatCompletion(messages), /讲稿接收中断.*网络重试 5 次后仍失败/);
-  assert.equal(fetchMock.mock.callCount(), 6);
+  await assert.rejects(requestChatCompletion(messages), /讲稿接收中断.*网络重试 3 次后仍失败/);
+  assert.equal(fetchMock.mock.callCount(), 4);
 });
