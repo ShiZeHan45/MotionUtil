@@ -9,7 +9,7 @@ import { repoSlug } from "../lib/paths";
 import { requestChatCompletion, type ChatMessage } from "../lib/chat-completion";
 import { leaderboardContext, leaderboardPresentation } from "../lib/leaderboard";
 import { estimateNarration, loadNarrationTiming, MAX_VIDEO_DURATION_MS, narrationCharacterBudget, TARGET_VIDEO_DURATION_MS, type NarrationTiming } from "../lib/narration";
-import { hookFactsSchema, hookMaterials, hookSelectionSchema, validateHookFacts, validateOpeningHook, validatePublicScript, type HookPreparation } from "../lib/opening-hook";
+import { hookFactsSchema, hookMaterials, hookSelectionSchema, normalizeHookFacts, validateHookFacts, validateOpeningHook, validatePublicScript, type HookPreparation } from "../lib/opening-hook";
 
 const PROMPT_VERSION = "gh-weekly-script-v12-beginner-narration-guide";
 const NARRATION_GUIDE_PATH = path.resolve("docs", "小白视角讲稿规范.md");
@@ -246,7 +246,7 @@ async function prepareHookFacts(source: RepoFacts, outputDirectory: string, timi
   const materials = hookMaterials(source);
   const cachePath = path.resolve(".cache", "scripts", `${repoSlug(source.fullName)}-${cacheKey(source, timing)}.hook-facts.json`);
   try {
-    const saved = hookFactsSchema.parse(await readJson(cachePath));
+    const saved = normalizeHookFacts(hookFactsSchema.parse(await readJson(cachePath)), materials);
     validateHookFacts(saved, materials);
     await writeJson(path.join(outputDirectory, `${repoSlug(source.fullName)}.hook-facts.json`), saved);
     console.log(`[节点 3] ${source.fullName}：第一步，复用已核验的技术事实`);
@@ -265,7 +265,7 @@ async function prepareHookFacts(source: RepoFacts, outputDirectory: string, timi
     { role: "user", content: JSON.stringify({ repo: source.fullName, language: source.language, topics: source.topics, materials }) },
   ];
   const parse = (content: string) => {
-    const preparation = hookFactsSchema.parse(safeJson(content));
+    const preparation = normalizeHookFacts(hookFactsSchema.parse(safeJson(content)), materials);
     validateHookFacts(preparation, materials);
     return preparation;
   };

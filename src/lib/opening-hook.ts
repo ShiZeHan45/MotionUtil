@@ -37,7 +37,50 @@ export const hookSelectionSchema = z.object({
 });
 export type HookSelection = z.infer<typeof hookSelectionSchema>;
 
-export type HookMaterial = { sourceUrl: string; sentences: Array<{ number: number; text: string }> };
+export type HookMaterial = { sourceUrl: string; text?: string; sentences: Array<{ number: number; text: string }> };
+
+function compactEvidence(text: string): string {
+  return text.replace(/\s+/gu, " ").trim();
+}
+
+function evidenceIncludes(text: string, excerpt: string): boolean {
+  return text.includes(excerpt) || compactEvidence(text).includes(compactEvidence(excerpt));
+}
+
+function evidenceMatches(material: HookMaterial, fact: HookPreparation["facts"][number]): boolean {
+  const sourceText = material.text ?? material.sentences.map((sentence) => sentence.text).join(" ");
+  return evidenceIncludes(sourceText, fact.sourceExcerpt)
+    && evidenceIncludes(fact.sourceExcerpt, fact.point);
+}
+
+function findEvidenceSentence(
+  fact: HookPreparation["facts"][number],
+  materials: HookMaterial[],
+): { number: number; text: string } | undefined {
+  const material = materials.find((item) => item.sourceUrl === fact.sourceUrl);
+  if (!material || !evidenceMatches(material, fact)) return undefined;
+  // Prefer the model's number, then recover from the cited text when Markdown
+  // line breaks or punctuation caused a different sentence split locally.
+  const exact = material.sentences.find((item) => item.number === fact.sentenceNumber
+    && (evidenceIncludes(item.text, fact.sourceExcerpt) || evidenceIncludes(item.text, fact.point)));
+  if (exact) return exact;
+  const containing = material.sentences.find((item) => evidenceIncludes(item.text, fact.sourceExcerpt)
+    || evidenceIncludes(item.text, fact.point));
+  if (containing) return containing;
+
+  // A quote can span Markdown lines or multiple locally split sentences.
+  // Attribute it to the sentence where the quoted passage begins.
+  const joined = compactEvidence(material.sentences.map((item) => item.text).join(" "));
+  const excerptStart = joined.indexOf(compactEvidence(fact.sourceExcerpt));
+  let offset = 0;
+  for (const sentence of material.sentences) {
+    const start = offset;
+    const end = start + compactEvidence(sentence.text).length;
+    if (excerptStart >= start && excerptStart <= end) return sentence;
+    offset = end + 1;
+  }
+  return undefined;
+}
 
 // Number only text actually collected by node 2. A link is not evidence that its page was read.
 export function hookMaterials(facts: RepoFacts): HookMaterial[] {
@@ -46,6 +89,7 @@ export function hookMaterials(facts: RepoFacts): HookMaterial[] {
   if (facts.readme?.text.trim()) documents.push(facts.readme);
   return documents.map(({ sourceUrl, text }) => ({
     sourceUrl,
+    text,
     sentences: text.split(/\r?\n|(?<=[。！？!?])\s*|(?<=\.)\s+(?=[A-Z])/u)
       .map((sentence) => sentence.trim()).filter(Boolean)
       .map((sentence, index) => ({ number: index + 1, text: sentence })),
@@ -57,9 +101,8 @@ export function validateHookFacts(preparation: HookPreparation, materials: HookM
   for (const fact of preparation.facts) {
     if (ids.has(fact.id)) throw new Error(`技术事实编号重复：${fact.id}`);
     ids.add(fact.id);
-    const sentence = materials.find((material) => material.sourceUrl === fact.sourceUrl)
-      ?.sentences.find((item) => item.number === fact.sentenceNumber)?.text;
-    if (!sentence || !sentence.includes(fact.sourceExcerpt) || !fact.sourceExcerpt.includes(fact.point)) {
+    const sentence = findEvidenceSentence(fact, materials);
+    if (!sentence) {
       throw new Error(`${fact.id} 原文核对失败：技术要点和引用必须逐字摘自 ${fact.sourceUrl} 第 ${fact.sentenceNumber} 句`);
     }
     if (/【待填[：:]/u.test(fact.point)) throw new Error(`${fact.id} 将缺失信息作为技术事实`);
@@ -67,6 +110,21 @@ export function validateHookFacts(preparation: HookPreparation, materials: HookM
   if (!preparation.facts.some((fact) => fact.suitable)) {
     throw new Error("现有资料没有可核验的知识钩子依据，请补充项目 README 或官方介绍后重试");
   }
+}
+
+/**
+ * Correct sentence numbers after accepting the cited text. The model sees
+ * source sentences in the prompt, but its own punctuation interpretation can
+ * differ from the local Markdown splitter used by the validator.
+ */
+export function normalizeHookFacts(preparation: HookPreparation, materials: HookMaterial[]): HookPreparation {
+  return {
+    ...preparation,
+    facts: preparation.facts.map((fact) => {
+      const sentence = findEvidenceSentence(fact, materials);
+      return sentence ? { ...fact, sentenceNumber: sentence.number } : fact;
+    }),
+  };
 }
 
 export function selectedOpeningHook(plan?: OpeningHookPlan) {
