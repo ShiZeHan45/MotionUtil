@@ -170,7 +170,7 @@ function validateScriptCoverage(script: ProjectScript, source: RepoFacts, timing
   const totalShare = storyboard.beats.reduce((sum, beat) => sum + beat.voiceShare, 0);
   if (totalShare < 0.9 || totalShare > 1.1) throw new Error(`${source.fullName} 原理故事板 voiceShare 合计为 ${totalShare.toFixed(2)}，应接近 1`);
   const issues = validateStoryboardLayout(storyboard);
-  if (issues.length) throw new Error(`${source.fullName} 原理故事板验收失败：${issues.map((issue) => issue.message).join("；")}`);
+  if (issues.length) throw new StoryboardPlanError(`${source.fullName} 原理故事板验收失败：${issues.map((issue) => issue.message).join("；")}`, script);
 }
 
 /** Validate the graph before TTS/rendering so disconnected cards never reach a video. */
@@ -339,7 +339,7 @@ async function generateBatch(facts: RepoFacts[], timing: NarrationTiming, output
       ? error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("；")
       : error instanceof SyntaxError ? "结果不是完整的 JSON" : error instanceof Error ? error.message : String(error);
     if (error instanceof StoryboardPlanError && facts.length === 1) {
-      console.log(`[节点 3] 原理图需要精简：${detail}；只修复对象和关系，保留口播和钩子`);
+      console.log(`[节点 3] 原理图需要修复：${detail}；只修复对象和关系，保留口播、钩子和来源`);
       const revised = await simplifyStoryboard(error.script);
       validateScriptCoverage(revised, facts[0]!, timing);
       return [{ ...revised, visualAssets: facts[0]!.visualAssets }];
@@ -391,18 +391,18 @@ async function generateBatch(facts: RepoFacts[], timing: NarrationTiming, output
   }
 }
 
-/** Reduce drawing density without changing the accepted narration or its hook answer. */
+/** Repair the drawing graph without rewriting accepted narration, hooks, or sources. */
 export async function simplifyStoryboard(script: ProjectScript): Promise<ProjectScript> {
   if (!script.conceptStoryboard) throw new Error(`${script.repo} 缺少原理故事板`);
   const schema = z.object({ conceptStoryboard: conceptStoryboardSchema });
   const content = await requestChatCompletion([
     { role: "system", content: [
-      "你是原理图编辑，只精简 conceptStoryboard 的对象和关系，输出 JSON。",
+      "你是原理图编辑，只修复 conceptStoryboard 的对象和关系，输出 JSON。根据 validationIssues 解决连线或对象错误；对象过多时精简，不重写整份讲稿。",
       "保持全部 beat 的 id、顺序、text、spokenText、voiceShare 和核心含义，不更改口播。整段最多六个核心对象，每拍最多新增两个；复用对象 id，不把每个技术名词都变成新对象。只绘制口播支持的关系，不编造功能或机制；删掉非核心画面对象不会删掉口播里的解释。",
-      "每个对象必须有有效关系，connectors 端点已在本拍或之前出现，不要重复画相同连线。保持所选钩子的兑现链路。",
+      "每个对象必须有有效关系，connectors 端点已在本拍或之前出现。相同 from/to 的连线只在首次建立时输出一次，后续强调已有关系用 highlight 和 focusIds，不再次输出相同连线。保持所选钩子的兑现链路，不输出或改动来源、开场、案例等其他字段。",
       JSON.stringify(z.toJSONSchema(schema)),
     ].join("\n") },
-    { role: "user", content: JSON.stringify({ repo: script.repo, conceptStoryboard: script.conceptStoryboard, openingHook: script.openingHook }) },
+    { role: "user", content: JSON.stringify({ repo: script.repo, conceptStoryboard: script.conceptStoryboard, openingHook: script.openingHook, validationIssues: validateStoryboardLayout(script.conceptStoryboard) }) },
   ]);
   const revision = schema.parse(safeJson(content)).conceptStoryboard;
   const original = script.conceptStoryboard;
