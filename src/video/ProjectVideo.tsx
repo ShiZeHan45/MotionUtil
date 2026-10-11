@@ -208,8 +208,9 @@ function RankCard({ repo, selected, scanning, index, durationFrames, context }: 
     </div>
     <div style={{ flex: "0 0 180px", textAlign: "right" }}>
       <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 5, fontSize: 24, lineHeight: 1.15, fontWeight: 950, color: palette.ink }}>
-        <span style={{ color: palette.yellow, fontSize: 28 }}>★</span>{formatStars(repo.totalStars)}<span style={{ fontSize: 14, color: palette.muted }}>总 Star</span>
+        <span style={{ color: palette.yellow, fontSize: 28 }}>★</span>{formatStars(repo.totalStars)}
       </div>
+      <div style={{ marginTop: 2, color: palette.muted, fontSize: 14, lineHeight: 1, fontWeight: 850 }}>总 Star</div>
       {repo.starsThisWeek !== null && <div style={{ marginTop: 7, color: palette.teal, fontSize: 17, lineHeight: 1.1, fontWeight: 850 }}>↗ {formatStars(repo.starsThisWeek)}<br />{leaderboardPresentation(context).metricLabel}</div>}
       {selected && <div style={{ marginTop: 10, color: palette.teal, fontSize: 20, fontWeight: 900 }}>本期介绍</div>}
     </div>
