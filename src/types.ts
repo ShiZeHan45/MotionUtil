@@ -138,6 +138,8 @@ export type StoryboardValidationIssue = {
 export type ProjectScript = {
   repo: string;
   rank: number;
+  /** Current total GitHub stars fetched by node 2; nullable when the API did not provide it. */
+  totalStars?: number | null;
   title: string;
   oneLineSummary: string;
   problem: string;

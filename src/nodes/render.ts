@@ -112,6 +112,13 @@ export async function renderVideos(projects: RenderProject[], leaderboard: Trend
   await mkdir(outputDirectory, { recursive: true });
   await mkdir("public", { recursive: true });
   const inputProjects = await Promise.all(selected.map((project) => stageAssets(project, runId)));
+  // Star History snapshots contain only growth. Merge node 2's current totals
+  // back into the opening leaderboard before rendering the cards.
+  const totalsByRank = new Map(inputProjects.map((project) => [project.rank, project.totalStars]));
+  const displayLeaderboard = leaderboard.map((repo) => {
+    const totalStars = totalsByRank.get(repo.rank);
+    return totalStars === null || totalStars === undefined ? repo : { ...repo, totalStars };
+  });
   const background = await stageBackgroundAsset(runId);
   await writeJson(path.join(outputDirectory, "render-input.json"), inputProjects);
   console.log("[节点 5] 打包 Remotion 动画模板");
@@ -123,7 +130,7 @@ export async function renderVideos(projects: RenderProject[], leaderboard: Trend
   process.stdout.write("\n");
   const output: string[] = [];
   for (const [index, project] of inputProjects.entries()) {
-    const inputProps: VideoProps = { project, leaderboard: leaderboard.slice(0, topN ?? projects.length), leaderboardContext, background: background?.asset, backgroundFrames: background?.backgroundFrames, backgroundDurationInFrames: background?.durationInFrames };
+    const inputProps: VideoProps = { project, leaderboard: displayLeaderboard.slice(0, topN ?? projects.length), leaderboardContext, background: background?.asset, backgroundFrames: background?.backgroundFrames, backgroundDurationInFrames: background?.durationInFrames };
     const composition = await selectComposition({
       serveUrl,
       id: "ProjectVideo",

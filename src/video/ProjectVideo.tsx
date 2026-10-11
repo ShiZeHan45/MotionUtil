@@ -198,8 +198,6 @@ function RankCard({ repo, selected, scanning, index, durationFrames, context }: 
   const entrance = spring({ frame: frame - index * 3, fps, config: { damping: 18, mass: 0.7 } });
   const lift = selected ? interpolate(frame, [fps * 0.7, fps * 1.8], [0, -3], { extrapolateRight: "clamp" }) : 0;
   const formatStars = (stars: number | null) => stars === null ? "—" : new Intl.NumberFormat("en-US").format(stars);
-  const starHistory = context?.source === "star-history";
-  const primaryStars = starHistory ? repo.starsThisWeek : repo.totalStars;
   const nameLayout = textLayout(repo.fullName, 380, 82, 32, 28, 850);
   const descriptionLayout = textLayout(repo.description || leaderboardPresentation(context).name, 380, 62, 23, 22, 650);
   return <div data-text-region={`榜单 ${repo.rank}`} style={{ transform: `translateY(${(1 - entrance) * 48 + lift}px) scale(${selected || scanning ? 1.01 : 1})`, opacity: entrance * (selected || scanning || frame < fps * 1.2 ? 1 : 0.55), width: 800, height: 190, marginBottom: 14, padding: "15px 24px", boxSizing: "border-box", display: "flex", alignItems: "center", gap: 16, border: `4px solid ${selected ? palette.teal : scanning ? palette.coral : palette.ink}`, borderRadius: 26, background: selected ? "#fffef9" : scanning ? "#fff8eb" : "rgba(255,255,255,.75)", boxShadow: selected ? "0 8px 0 rgba(22,140,134,.16)" : "0 7px 0 rgba(20,52,74,.08)" }}>
@@ -210,10 +208,9 @@ function RankCard({ repo, selected, scanning, index, durationFrames, context }: 
     </div>
     <div style={{ flex: "0 0 180px", textAlign: "right" }}>
       <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 5, fontSize: 24, lineHeight: 1.15, fontWeight: 950, color: palette.ink }}>
-        <span style={{ color: starHistory ? palette.teal : palette.yellow, fontSize: 28 }}>{starHistory ? "↗" : "★"}</span>{formatStars(primaryStars)}
+        <span style={{ color: palette.yellow, fontSize: 28 }}>★</span>{formatStars(repo.totalStars)}<span style={{ fontSize: 14, color: palette.muted }}>总 Star</span>
       </div>
-      {starHistory ? <div style={{ marginTop: 7, color: palette.teal, fontSize: 17, lineHeight: 1.1, fontWeight: 850 }}>{leaderboardPresentation(context).metricLabel} Stars</div>
-        : repo.starsThisWeek !== null && <div style={{ marginTop: 7, color: palette.teal, fontSize: 17, lineHeight: 1.1, fontWeight: 850 }}>↗ {formatStars(repo.starsThisWeek)}<br />{leaderboardPresentation(context).metricLabel}</div>}
+      {repo.starsThisWeek !== null && <div style={{ marginTop: 7, color: palette.teal, fontSize: 17, lineHeight: 1.1, fontWeight: 850 }}>↗ {formatStars(repo.starsThisWeek)}<br />{leaderboardPresentation(context).metricLabel}</div>}
       {selected && <div style={{ marginTop: 10, color: palette.teal, fontSize: 20, fontWeight: 900 }}>本期介绍</div>}
     </div>
   </div>;

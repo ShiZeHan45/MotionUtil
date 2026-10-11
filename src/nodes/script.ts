@@ -11,7 +11,7 @@ import { leaderboardContext, leaderboardPresentation } from "../lib/leaderboard"
 import { estimateNarration, loadNarrationTiming, MAX_VIDEO_DURATION_MS, narrationCharacterBudget, TARGET_VIDEO_DURATION_MS, type NarrationTiming } from "../lib/narration";
 import { hookFactsSchema, hookMaterials, hookSelectionSchema, normalizeHookFacts, validateHookFacts, validateOpeningHook, validatePublicScript, type HookPreparation } from "../lib/opening-hook";
 
-const PROMPT_VERSION = "gh-weekly-script-v12-beginner-narration-guide";
+const PROMPT_VERSION = "gh-weekly-script-v13-total-stars-beginner-narration-guide";
 const NARRATION_GUIDE_PATH = path.resolve("docs", "小白视角讲稿规范.md");
 const MAX_BUDGET_REVISIONS = 3;
 const conceptObjectSchema = z.object({
@@ -139,6 +139,22 @@ function validateIntroSource(script: ProjectScript, context = script.leaderboard
   }
 }
 
+function ensureIntroTotalStars(script: ProjectScript, source: RepoFacts): ProjectScript {
+  const totalStars = source.totalStars;
+  if (totalStars === null || totalStars === undefined) return { ...script, totalStars: totalStars ?? null };
+  const intro = script.narrationSegments[0];
+  if (!intro) return { ...script, totalStars };
+  const introText = `${intro.text} ${intro.spokenText ?? ""}`;
+  if (/(?:总\s*(?:star|星)|(?:当前|已有)[^。！？]{0,24}(?:star|星))/iu.test(introText)) return { ...script, totalStars };
+  const formatted = new Intl.NumberFormat("en-US").format(totalStars);
+  const sentence = `当前项目累计 ${formatted} 个 Star。`;
+  return {
+    ...script,
+    totalStars,
+    narrationSegments: [{ ...intro, text: `${intro.text} ${sentence}`, spokenText: `${intro.spokenText ?? intro.text} ${sentence}` }, ...script.narrationSegments.slice(1)],
+  };
+}
+
 function validateScriptCoverage(script: ProjectScript, source: RepoFacts, timing: NarrationTiming): void {
   if (script.repo.toLowerCase() !== source.fullName.toLowerCase()) throw new Error(`讲稿仓库不匹配：预期 ${source.fullName}，实际 ${script.repo}`);
   if (script.rank !== source.rank) throw new Error(`讲稿名次不匹配：${source.fullName} 应为 ${source.rank}，实际 ${script.rank}`);
@@ -229,11 +245,13 @@ function parseScripts(content: string, facts: RepoFacts[], timing: NarrationTimi
     const preparation = preparations.get(source.fullName.toLowerCase());
     if (!generated || !preparation) throw new Error(`模型漏掉仓库 ${source.fullName}`);
     // The second request cannot replace the evidence accepted in the first step.
-    const script: ProjectScript = {
+    let script: ProjectScript = {
       ...generated,
+      totalStars: source.totalStars,
       openingHook: { version: 1, ...preparation, ...generated.openingHook },
       leaderboard: leaderboardContext(source.leaderboard),
     };
+    script = ensureIntroTotalStars(script, source);
     validatePublicScript(script);
     try { validateOpeningHook(script); }
     catch (error) { throw new HookPlanError(error instanceof Error ? error.message : String(error), script); }
@@ -314,11 +332,11 @@ async function generateBatch(facts: RepoFacts[], timing: NarrationTiming, output
     "原理段只深入两到三个最能回答钩子的机制，先具体再抽象，不穷举采集到的所有事实。一个解释句尽量不超过约三十五个汉字，长因果拆成短句；短句之间保持因果，不能变成标签列表。资料缺少的内部机制不能反复抢占问题段和总结，集中在条件与边界简短说明。",
     "现有画面使用有限空间的原理图：整段最多六个核心对象，复用已经出现的对象 id，不把每个技术词都画成新对象。每拍最多新增两个对象，用现有关系解释最关键机制；其他细节由口播和案例说明，不为了展示事实清单堆满画布。",
     "selectedPayoff.excerpt 必须有解释性内容，比如一个明确的分工、状态变化或输入怎样变成结果，不能只说‘能统一管理/由系统处理/带来结果’或换词重复钩子前提。所选钩子可以靠多个 beat 合起来回答，excerpt 保护其中关键解释句。",
-    "严格按场景放置口播：intro 第一部分必须逐字使用 selectedId 对应候选的 text（spokenText 有特殊读法则用它），先提出知识问题，再简短介绍项目名、榜单来源和原始名次。不要先念排名和 Stars。problem 建立具体痛点；concept 拆开解释机制并兑现钩子；case 才展开完整案例，dashboard 讲结果如何检查；setup/workflow 讲可复现操作；requirements 说明条件边界；summary 用日常语言收束答案。每段口播必须和该段画面对应。",
+    "严格按场景放置口播：intro 第一部分必须逐字使用 selectedId 对应候选的 text（spokenText 有特殊读法则用它），先提出知识问题，再简短介绍项目名、榜单来源、原始名次和节点 2 获取的 totalStars；总 Star 要明确说出，不要把当期新增误说成总数。不要先念排名和 Star 数字。problem 建立具体痛点；concept 拆开解释机制并兑现钩子；case 才展开完整案例，dashboard 讲结果如何检查；setup/workflow 讲可复现操作；requirements 说明条件边界；summary 用日常语言收束答案。每段口播必须和该段画面对应。",
     "conceptStoryboard 的 beats 必须按口播顺序讲清一个项目的核心原理。每个 beat 必须同时给出 text（这一拍要说的话）和可选 spokenText，voiceShare 是 concept 口播中该节拍所占比例，所有 voiceShare 之和应接近 1。cue 只是程序内部的时间锚点，绝不作为观众可见文字；cue 只写简短的动作标记，不要写‘首先’、‘接着’、‘然后’、‘最后’等思考过程或讲解句。先画输入或问题，再逐步画核心对象和关系，最后画结果；不要把所有对象一开始铺满。对象位置只提供语义参考，渲染器会自动排版；不要在同一行堆卡片。每一个新增对象都必须通过 connectors 与已经出现或本拍出现的对象建立有口播依据的关系；没有关系的装饰对象不要输出。仅使用允许的对象类型，不写 React、SVG 或其他代码，不编造资料中没有的内部机制。",
     "不要输出背景、网格、渐变、边框、装饰图案或整张图片；背景和画布由程序统一提供。你的输出只描述要画的对象、对象之间的关系和每一拍的口播。",
     "conceptStoryboard 的 title 必须概括项目原理，summary 必须是一句普通人能听懂的话。多 Agent 项目可以画 agent 和 context；编译器、转换器、数据处理项目应按输入、处理、输出选择对象。动作只表达画出、连接、圈定、转换、强调、结果或停留。",
-    `口播为自然普通话，目标约 180 秒，可接受 160–200 秒，不得超过 200 秒；不要为了凑时长重复内容。当前音色 ${timing.voice}，语速 ${timing.speed}，每段停顿 ${timing.pauseMs} 毫秒。实际配音文字合计控制在约 ${narrationCharacterBudget(timing, 16)} 字符以内（含英文、标点和数字，不计空格）。intro 在钩子之后用输入 leaderboard.name、原始名次和项目名简短介绍；Stars 可留给榜单画面，无需强行口播数字。不要混淆榜单来源。Star History 的统计周期以所给日期为准，不编造日期。`,
+    `口播为自然普通话，目标约 180 秒，可接受 160–200 秒，不得超过 200 秒；不要为了凑时长重复内容。当前音色 ${timing.voice}，语速 ${timing.speed}，每段停顿 ${timing.pauseMs} 毫秒。实际配音文字合计控制在约 ${narrationCharacterBudget(timing, 16)} 字符以内（含英文、标点和数字，不计空格）。intro 在钩子之后用输入 leaderboard.name、原始名次、项目名和 totalStars 简短介绍；总 Star 与当期新增分别表达，不混淆榜单来源。Star History 的统计周期以所给日期为准，不编造日期。`,
     "时长预算必须按实际口播统计：concept 场景由 conceptStoryboard.beats 的口播替代原 concept 段，其他八段各自保留；每段优先使用 spokenText，没有才使用 text。不得漏算 beats，也不得通过把更多文字放进 spokenText 绕过预算。重点给原理、案例和操作，排名、痛点、条件和总结简洁表达。",
     "案例可以用资料支持的假设场景，但必须说清是举例；不能把官方演示截图里的示例数字写成真实用户效果。使用步骤按官方资料可复现的先后顺序写，不要编造按钮、安装命令或不支持的功能。",
     "不要写‘想试用的话’、关注、点赞、评论等营销 CTA。视频只讲解、展示案例和讲清使用方法。",
@@ -365,6 +383,7 @@ async function generateBatch(facts: RepoFacts[], timing: NarrationTiming, output
           openingHook: { ...script.openingHook!, ...revision.openingHook },
           narrationSegments: [revision.intro, ...script.narrationSegments.slice(1)],
         };
+        revised = ensureIntroTotalStars(revised, facts[0]!);
         try { validateScriptCoverage(revised, facts[0]!, timing); }
         catch (error) {
           if (!(error instanceof StoryboardPlanError)) throw error;
@@ -516,15 +535,15 @@ export async function generateScripts(facts: RepoFacts[], outputDirectory: strin
     const scriptKey = cacheKey(item, timing, narrationGuideHash);
     const cachePath = path.join(cacheDirectory, `${repoSlug(item.fullName)}-${scriptKey}.json`);
     try {
-      const script = await readJson<ProjectScript>(cachePath);
-      validateScriptCoverage(script, item, timing);
-      if (estimateNarration(script, timing).durationMs > MAX_VIDEO_DURATION_MS) throw new Error("缓存讲稿超出当前配音时长预算");
-      cached.set(item.fullName.toLowerCase(), { ...script, visualAssets: item.visualAssets, leaderboard: leaderboardContext(item.leaderboard) });
+      const saved = ensureIntroTotalStars(await readJson<ProjectScript>(cachePath), item);
+      validateScriptCoverage(saved, item, timing);
+      if (estimateNarration(saved, timing).durationMs > MAX_VIDEO_DURATION_MS) throw new Error("缓存讲稿超出当前配音时长预算");
+      cached.set(item.fullName.toLowerCase(), { ...saved, visualAssets: item.visualAssets, leaderboard: leaderboardContext(item.leaderboard) });
       await writeJson(path.join(outputDirectory, `${repoSlug(item.fullName)}.json`), cached.get(item.fullName.toLowerCase()));
-      await persistHookReview(script, outputDirectory);
+      await persistHookReview(saved, outputDirectory);
       await writeJson(path.join(outputDirectory, `${repoSlug(item.fullName)}.hook-facts.json`), {
-        targetAudience: script.openingHook!.targetAudience, domain: script.openingHook!.domain,
-        missingInfo: script.openingHook!.missingInfo, facts: script.openingHook!.facts,
+        targetAudience: saved.openingHook!.targetAudience, domain: saved.openingHook!.domain,
+        missingInfo: saved.openingHook!.missingInfo, facts: saved.openingHook!.facts,
       });
       console.log(`[节点 3] ${cached.size}/${facts.length} ${item.fullName} 讲稿已复用缓存`);
       validationReport.push({ repo: item.fullName, status: "passed", issues: [] });
