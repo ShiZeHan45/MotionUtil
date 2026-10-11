@@ -10,6 +10,9 @@ export function isBadgeAsset(asset: Pick<VisualAsset, "label" | "sourceUrl">): b
   // Includes custom badges such as AnyPS5's badge-libraries.svg and badge-shaders.svg.
   let pathname = url.pathname;
   try { pathname = decodeURIComponent(pathname); } catch { /* Keep the original path. */ }
-  if (/(?:^|[/_.-])badges?(?:[/_.-]|$)/iu.test(pathname)) return true;
+  // Common badge endpoints include skills.sh/b/<repo>, not just paths that
+  // literally contain the word "badge". Keep these out of evidence panels.
+  if (/(?:^|[/_.-])badges?(?:[/_.-]|$)/iu.test(pathname)
+    || /\/b\/(?:[^/]+\/){1,2}[^/]+$/iu.test(pathname) && /(?:^|\.)skills\.sh$/iu.test(hostname)) return true;
   return /^(?:npm\s+(?:version|downloads?)|github\s+stars?|build\s+status|coverage|license(?:\s*:\s*.+)?|徽标|徽章)$/iu.test(asset.label.trim());
 }
