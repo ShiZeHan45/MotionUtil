@@ -50,6 +50,9 @@ export type NarrationSegment = {
   beatId?: string;
 };
 
+export type OperationSpeechPart = { stepIndex: number; text: string; spokenText: string };
+export type OperationCue = OperationSpeechPart & { startMs: number; endMs: number };
+
 export type HookFact = {
   id: string;
   point: string;
@@ -161,7 +164,7 @@ export type ProjectScript = {
 };
 
 export type RenderProject = Omit<ProjectScript, "narrationSegments"> & {
-  narrationSegments: Array<NarrationSegment & { audio: string; durationMs: number; spokenText: string }>;
+  narrationSegments: Array<NarrationSegment & { audio: string; durationMs: number; spokenText: string; operationCues?: OperationCue[] }>;
 };
 
 export type RunPaths = {

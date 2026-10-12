@@ -11,6 +11,7 @@ import { repoSlug } from "../lib/paths";
 import { writeJson } from "../lib/io";
 import { durationInFrames, framesForMs, FPS, type VideoProps } from "../video/ProjectVideo";
 import { isExcludedEvidenceAsset } from "../lib/visual-assets";
+import { validateOperationCues } from "../lib/operation-timing";
 
 const execFileAsync = promisify(execFile);
 
@@ -87,6 +88,7 @@ async function stageAssets(project: RenderProject, runId: string): Promise<Rende
   await mkdir(assetRoot, { recursive: true });
   const segments: RenderProject["narrationSegments"] = [];
   for (const segment of project.narrationSegments) {
+    validateOperationCues(segment, project.repo);
     const filename = path.basename(segment.audio);
     const destination = path.join(assetRoot, filename);
     await copyFile(segment.audio, destination);

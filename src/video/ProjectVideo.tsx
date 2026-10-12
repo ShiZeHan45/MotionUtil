@@ -1,10 +1,11 @@
 import React from "react";
 import { AbsoluteFill, Audio, Img, Loop, OffthreadVideo, Sequence, Video, cancelRender, continueRender, delayRender, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
-import type { ConceptBeat, ConceptConnector, ConceptObject, ConceptStoryboard, LeaderboardContext, RenderProject, TrendingRepo } from "../types";
+import type { ConceptBeat, ConceptConnector, ConceptObject, ConceptStoryboard, LeaderboardContext, OperationCue, RenderProject, TrendingRepo } from "../types";
 import { leaderboardPresentation } from "../lib/leaderboard";
 import { isExcludedEvidenceAsset } from "../lib/visual-assets";
 import { selectedOpeningHook } from "../lib/opening-hook";
-import { LayoutGuard, TextBlock, textLayout, textProgress, VIDEO_FONT } from "./text-layout";
+import { activeOperationCue, OPERATION_STEP_LABELS } from "../lib/operation-timing";
+import { LayoutGuard, TextBlock, textLayout, textProgress, VIDEO_FONT, type TextLayout } from "./text-layout";
 import { connectorId, layoutConceptGraph, type ConceptGraphLayout, type GraphEdge, type GraphNode } from "./concept-layout";
 
 export type VideoProps = { project: RenderProject; leaderboard: TrendingRepo[]; leaderboardContext?: LeaderboardContext; background?: string; backgroundFrames?: string[]; backgroundDurationInFrames?: number };
@@ -81,11 +82,15 @@ function splitCaption(text: string, limit = 24): string[] {
   return chunks.filter(Boolean);
 }
 
-function Subtitle({ text, durationFrames }: { text: string; durationFrames: number }) {
+function Subtitle({ text, durationFrames, operationCues }: { text: string; durationFrames: number; operationCues?: OperationCue[] }) {
   const frame = useCurrentFrame();
-  const chunks = splitCaption(text);
+  const { fps } = useVideoConfig();
+  const timeMs = frame * 1_000 / fps;
+  const cue = operationCues && activeOperationCue(operationCues, timeMs);
+  const cueProgress = cue ? (timeMs - cue.startMs) / (cue.endMs - cue.startMs) : frame / Math.max(1, durationFrames);
+  const chunks = splitCaption(cue?.text ?? text);
   const totalChars = chunks.reduce((sum, chunk) => sum + Array.from(chunk).length, 0);
-  const spokenPosition = Math.min(totalChars - 1, Math.floor((frame / Math.max(1, durationFrames)) * totalChars));
+  const spokenPosition = Math.max(0, Math.min(totalChars - 1, Math.floor(cueProgress * totalChars)));
   let accumulated = 0;
   const activeIndex = Math.max(0, chunks.findIndex((chunk) => {
     accumulated += Array.from(chunk).length;
@@ -96,6 +101,32 @@ function Subtitle({ text, durationFrames }: { text: string; durationFrames: numb
   const chunkStart = chunks.slice(0, activeIndex).reduce((sum, value) => sum + Array.from(value).length, 0);
   const progress = (spokenPosition - chunkStart) / Math.max(1, Array.from(chunk).length - 1);
   return <div data-text-region="字幕" style={{ position: "absolute", zIndex: 45, left: 68, right: 68, bottom: 104, minHeight: 82, boxSizing: "border-box", borderRadius: 22, border: "2px solid rgba(255,255,255,.6)", background: "rgba(22, 31, 40, .9)", color: "white", padding: "16px 24px", display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", fontWeight: 800, boxShadow: "0 12px 26px rgba(20,30,40,.2)" }}><TextBlock key={chunk} layout={layout} name="字幕正文" progress={progress} /></div>;
+}
+
+type OperationPage = { firstStepIndex: number; steps: Array<{ stepIndex: number; text: string }>; layout: TextLayout };
+const operationCardWidth = (count: number) => Math.floor((878 - (count - 1) * 50) / count);
+
+/** Pack complete steps, checking both the main card and the diagram below it. */
+function operationPages(steps: string[], bodyTop: number, detailHeight: number): OperationPage[] {
+  const pages: OperationPage[] = [];
+  // Reserve the tallest main card so the diagram fits on every page.
+  const visualTop = Math.max(960, bodyTop + 390 + 13 + detailHeight + 34);
+  const diagramTextHeight = Math.min(530, 1645 - visualTop - 140) - 200;
+  const pageFor = (firstStepIndex: number, count: number): OperationPage | undefined => {
+    const items = steps.slice(firstStepIndex, firstStepIndex + count).map((text, offset) => ({ text, stepIndex: firstStepIndex + offset }));
+    const text = items.map((item) => `${OPERATION_STEP_LABELS[item.stepIndex] ?? `第${item.stepIndex + 1}步`}：${item.text}`).join("\n\n");
+    const layout = textLayout(text, 868, 336, 32, 28, 850);
+    if (layout.pages.length > 1 || items.some((item) => textLayout(item.text, operationCardWidth(count) - 30, diagramTextHeight, 24, 22, 650).pages.length > 1)) return undefined;
+    return { firstStepIndex, steps: items, layout };
+  };
+  for (let index = 0; index < steps.length;) {
+    let page: OperationPage | undefined;
+    for (let count = Math.min(3, steps.length - index); count >= 1 && !page; count--) page = pageFor(index, count);
+    if (!page) throw new Error(`操作文字布局失败：${OPERATION_STEP_LABELS[index] ?? `第${index + 1}步`}无法完整显示，请缩短该步骤说明后重新生成。`);
+    pages.push(page);
+    index += page.steps.length;
+  }
+  return pages;
 }
 
 function CodeMascot() {
@@ -125,10 +156,11 @@ function DiagramIcon({ kind }: { kind: "input" | "process" | "result" }) {
   return <svg viewBox="0 0 100 100" width="84" height="84"><path {...common} d="M19 77h62 M29 68V47h14v21 M54 68V29h14v39 M76 68V17h11v51" /><path d="M20 29L34 17L46 28" fill="none" stroke={palette.coral} strokeWidth="7" strokeLinecap="round" strokeLinejoin="round" /></svg>;
 }
 
-function SceneDiagram({ project, scene, top, durationFrames }: { project: RenderProject; scene: string; top: number; durationFrames: number }) {
+function SceneDiagram({ project, scene, top, durationFrames, operationPage, activeStepIndex, pageStartFrame = 0 }: { project: RenderProject; scene: string; top: number; durationFrames: number; operationPage?: OperationPage; activeStepIndex?: number; pageStartFrame?: number }) {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const panelIn = spring({ frame: frame - 8, fps, config: { damping: 19, mass: 0.8 } });
+  const pageFrame = frame - pageStartFrame;
+  const panelIn = spring({ frame: pageFrame - 8, fps, config: { damping: 19, mass: 0.8 } });
   const kinds = ["input", "process", "result"] as const;
   const flow = project.exampleFlow ?? [];
   const steps = project.usageSteps ?? [];
@@ -147,7 +179,7 @@ function SceneDiagram({ project, scene, top, durationFrames }: { project: Render
           { label: "结果", detail: project.exampleResult, kind: kinds[2] },
         ]
         : scene === "workflow"
-        ? [
+        ? operationPage ? operationPage.steps.map((step, index) => ({ label: `步骤 ${step.stepIndex + 1}`, detail: step.text, kind: kinds[index % kinds.length]! })) : [
             { label: "步骤 1", detail: steps[0] ?? project.usage, kind: kinds[0] },
             { label: "步骤 2", detail: steps[1] ?? flow[0] ?? project.features[0] ?? project.usage, kind: kinds[1] },
             { label: "步骤 3", detail: steps[2] ?? project.exampleResult, kind: kinds[2] },
@@ -170,19 +202,21 @@ function SceneDiagram({ project, scene, top, durationFrames }: { project: Render
                 { label: "输出", detail: project.exampleResult || project.oneLineSummary, kind: kinds[2] },
               ];
   const maxCardHeight = Math.min(530, 1645 - top - 140);
-  const cards = stages.map((stage) => ({ ...stage, labelLayout: textLayout(stage.label, 214, 72, 26, 24, 900), detailLayout: textLayout(stage.detail, 214, maxCardHeight - 200, 24, 22, 650) }));
+  const cardWidth = operationPage ? operationCardWidth(stages.length) : 244;
+  const cards = stages.map((stage) => ({ ...stage, labelLayout: textLayout(stage.label, cardWidth - 30, 72, 26, 24, 900), detailLayout: textLayout(stage.detail, cardWidth - 30, maxCardHeight - 200, 24, 22, 650) }));
   const cardHeight = Math.max(...cards.map((card) => 130 + card.labelLayout.height + card.detailLayout.height));
   return <div data-text-region={`${scene} 示意图`} style={{ position: "absolute", left: 74, right: 74, top, height: cardHeight + 140, borderRadius: 34, border: `3px solid rgba(20,52,74,.5)`, background: "rgba(255,255,255,.86)", boxShadow: "0 12px 0 rgba(20,52,74,.1)", padding: "28px 28px", boxSizing: "border-box", opacity: panelIn, transform: `translateY(${(1 - panelIn) * 36}px) scale(${0.98 + panelIn * 0.02})` }}>
     <div style={{ fontSize: 22, color: palette.teal, fontWeight: 950, letterSpacing: 2 }}>项目示意图 · 依据项目资料整理</div>
     <div style={{ position: "absolute", top: 100, left: 24, right: 24, display: "flex", alignItems: "stretch", justifyContent: "space-between", gap: 4 }}>
       {cards.map((stage, index) => {
-        const cardIn = spring({ frame: frame - 12 - index * 8, fps, config: { damping: 16, mass: 0.65 } });
-        const arrowOpacity = interpolate(frame, [18 + index * 8, 28 + index * 8], [0, 1], { extrapolateRight: "clamp" });
+        const cardIn = spring({ frame: pageFrame - 12 - index * 8, fps, config: { damping: 16, mass: 0.65 } });
+        const arrowOpacity = interpolate(pageFrame, [18 + index * 8, 28 + index * 8], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+        const highlighted = operationPage ? operationPage.steps[index]?.stepIndex === activeStepIndex : index === 1;
         return <React.Fragment key={stage.label}>
-        <div data-text-region={`${scene} 示意卡片 ${index + 1}`} style={{ width: 244, height: cardHeight, flexShrink: 0, border: `3px solid ${index === 1 ? palette.teal : palette.ink}`, borderRadius: 24, background: index === 1 ? "#E5F4EF" : "#FCFBF6", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "16px 12px", boxSizing: "border-box", textAlign: "center", opacity: cardIn, transform: `translateY(${(1 - cardIn) * 32}px) scale(${0.94 + cardIn * 0.06})` }}>
+        <div data-text-region={`${scene} 示意卡片 ${index + 1}`} style={{ width: cardWidth, height: cardHeight, flexShrink: 0, border: `3px solid ${highlighted ? palette.teal : palette.ink}`, borderRadius: 24, background: highlighted ? "#E5F4EF" : "#FCFBF6", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "16px 12px", boxSizing: "border-box", textAlign: "center", opacity: cardIn, transform: `translateY(${(1 - cardIn) * 32}px) scale(${0.94 + cardIn * 0.06})` }}>
           <DiagramIcon kind={stage.kind} />
           <TextBlock layout={stage.labelLayout} name={`${scene} 示意标题 ${index + 1}`} style={{ marginTop: 8, color: palette.ink, fontWeight: 900 }} />
-          <TextBlock layout={stage.detailLayout} name={`${scene} 示意正文 ${index + 1}`} progress={textProgress(frame, durationFrames, 0.08)} style={{ marginTop: 6, color: palette.muted, fontWeight: 650 }} />
+          <TextBlock layout={stage.detailLayout} name={`${scene} 示意正文 ${index + 1}`} progress={operationPage ? 0 : textProgress(frame, durationFrames, 0.08)} style={{ marginTop: 6, color: palette.muted, fontWeight: 650 }} />
         </div>
         {index < stages.length - 1 && <div style={{ alignSelf: "center", color: palette.coral, fontSize: 38, fontWeight: 950, opacity: arrowOpacity, transform: `translateX(${(1 - arrowOpacity) * -8}px)` }}>➜</div>}
       </React.Fragment>;
@@ -505,7 +539,7 @@ function ConceptWalkthrough({ project, caption, durationFrames }: { project: Ren
   </AbsoluteFill>;
 }
 
-function ExplainerScene({ project, scene, caption, index, durationFrames, beatId }: { project: RenderProject; scene: string; caption: string; index: number; durationFrames: number; beatId?: string }) {
+function ExplainerScene({ project, scene, caption, index, durationFrames, beatId, operationCues }: { project: RenderProject; scene: string; caption: string; index: number; durationFrames: number; beatId?: string; operationCues?: OperationCue[] }) {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const progress = spring({ frame, fps, config: { damping: 20, mass: 0.8 } });
@@ -519,8 +553,8 @@ function ExplainerScene({ project, scene, caption, index, durationFrames, beatId
   const setupDetail = requirements.length > 0
     ? `先准备：${requirements.slice(0, 2).join("；")}`
     : `先准备项目所需环境，再按 README 完成首次启动。`;
-  const stepLabels = ["第一步", "第二步", "第三步", "第四步", "第五步"];
-  const orderedSteps = (steps.length > 0 ? steps : flow).map((step, index) => `${stepLabels[index] ?? `第${index + 1}步`}：${step.trim()}`);
+  const operationSteps = (steps.length > 0 ? steps : flow).map((step) => step.trim());
+  const orderedSteps = operationSteps.map((step, index) => `${OPERATION_STEP_LABELS[index] ?? `第${index + 1}步`}：${step}`);
   const workflowMain = orderedSteps.join("\n\n");
   const workflowDetail = project.usage || project.exampleResult;
   const requirementsMain = requirements.join(" · ") || "按项目文档准备运行环境";
@@ -543,12 +577,20 @@ function ExplainerScene({ project, scene, caption, index, durationFrames, beatId
   const fallbackIndex: Record<string, number> = { case: 0, dashboard: 1, setup: 2, workflow: 3 };
   const evidenceId = preferredAsset?.id ?? visualAssets?.[fallbackIndex[scene] ?? 0]?.id;
   const hasEvidence = Boolean(evidenceId && visualAssets?.some((asset) => asset.id === evidenceId));
-  const main = textLayout(content.main, 868, 336, 32, 28, 850);
   const detail = textLayout(content.detail, 874, 178, 24, 22, 700);
   const title = textLayout(sceneTitles[scene] ?? project.title, 928, 145, 54, 44, 950);
   const bodyTop = Math.max(420, 234 + 32 + 16 + title.height + 28);
-  const mainHeight = main.height + 50;
   const detailHeight = detail.height + 34;
+  const pages = scene === "workflow" && operationCues?.length && operationSteps.length ? operationPages(operationSteps, bodyTop, detailHeight) : [];
+  const activeCue = operationCues && activeOperationCue(operationCues, frame * 1_000 / fps);
+  const activeStepIndex = activeCue?.stepIndex ?? 0;
+  const pageIndex = pages.reduce((selected, page, index) => page.firstStepIndex <= activeStepIndex ? index : selected, 0);
+  const operationPage = pages[pageIndex];
+  const pageStartMs = operationCues?.find((cue) => cue.stepIndex === operationPage?.firstStepIndex)?.startMs ?? 0;
+  const pageStartFrame = pageStartMs * fps / 1_000;
+  const pageIn = spring({ frame: frame - pageStartFrame, fps, config: { damping: 20, mass: 0.8 } });
+  const main = operationPage?.layout ?? textLayout(content.main, 868, 336, 32, 28, 850);
+  const mainHeight = (pages.length ? Math.max(...pages.map((page) => page.layout.height)) : main.height) + 50;
   const contentBottom = bodyTop + mainHeight + 13 + detailHeight;
   const visualTop = Math.max(674, contentBottom + 34);
   const opacity = interpolate(progress, [0, 1], [0, 1]);
@@ -559,16 +601,16 @@ function ExplainerScene({ project, scene, caption, index, durationFrames, beatId
       <TextBlock layout={title} name={`${scene} 场景标题`} progress={textProgress(frame, durationFrames)} style={{ marginTop: 16, fontWeight: 950 }} />
     </div>
     <div style={{ position: "absolute", top: bodyTop, left: 76, right: 76, display: "flex", flexDirection: "column", gap: 13 }}>
-      <div data-text-region={`${scene} 主说明卡片`} style={{ height: mainHeight, boxSizing: "border-box", border: `3px solid ${palette.ink}`, borderRadius: 24, background: "#fffef9", padding: "22px 27px", boxShadow: `0 9px 0 ${content.color}`, fontWeight: 850, opacity, transform: `translateX(${(1 - progress) * 36}px)` }}><TextBlock layout={main} name={`${scene} 主说明`} progress={textProgress(frame, durationFrames)} /></div>
+      <div data-text-region={`${scene} 主说明卡片`} style={{ height: mainHeight, boxSizing: "border-box", border: `3px solid ${palette.ink}`, borderRadius: 24, background: "#fffef9", padding: "22px 27px", boxShadow: `0 9px 0 ${content.color}`, fontWeight: 850, opacity, transform: `translateX(${(1 - progress) * 36}px)` }}><TextBlock key={pageIndex} layout={main} name={`${scene} 主说明`} progress={operationPage ? 0 : textProgress(frame, durationFrames)} style={operationPage ? { opacity: pageIn, transform: `translateY(${(1 - pageIn) * 8}px)` } : undefined} /></div>
       <div data-text-region={`${scene} 补充说明卡片`} style={{ height: detailHeight, boxSizing: "border-box", borderRadius: 18, background: "rgba(255,255,255,.78)", padding: "17px 24px", color: palette.muted, fontWeight: 700, opacity: Math.max(0, progress - 0.2) }}><TextBlock layout={detail} name={`${scene} 补充说明`} progress={textProgress(frame, durationFrames)} /></div>
     </div>
     {!hasEvidence && <>
       <div style={{ position: "absolute", top: Math.max(900, visualTop), right: 78, transform: `translateY(${Math.sin(frame / 14) * 5}px) rotate(${Math.sin(frame / 22) * 1.5}deg) scale(.65)`, transformOrigin: "top right", opacity }}><CodeMascot /></div>
-      <SceneDiagram project={project} scene={scene} top={Math.max(960, visualTop)} durationFrames={durationFrames} />
+      <SceneDiagram project={project} scene={scene} top={Math.max(960, visualTop)} durationFrames={durationFrames} operationPage={operationPage} activeStepIndex={activeStepIndex} pageStartFrame={pageStartFrame} />
     </>}
     {hasEvidence && <EvidencePanel project={project} assetId={evidenceId!} top={visualTop} durationFrames={durationFrames} />}
     <div style={{ position: "absolute", top: 174, left: 70, display: "flex", gap: 10, fontSize: 20, fontWeight: 900, color: palette.ink }}><span style={{ borderRadius: 99, padding: "8px 14px", background: content.color, color: "white" }}>#{project.rank}</span><span style={{ borderRadius: 99, padding: "8px 14px", background: "white" }}>{index + 1} / {project.narrationSegments.length}</span></div>
-    <Subtitle text={caption} durationFrames={durationFrames} />
+    <Subtitle text={caption} durationFrames={durationFrames} operationCues={operationCues} />
   </AbsoluteFill>;
 }
 
@@ -624,7 +666,7 @@ export const ProjectVideo: React.FC<VideoProps> = ({ project, leaderboard, leade
       return <Sequence key={`${segment.scene}-${index}`} from={start} durationInFrames={frames} name={segment.scene}>
         {segment.scene === "intro"
           ? <LeaderboardScene project={project} leaderboard={leaderboard} caption={segment.text} durationFrames={frames} context={effectiveContext} />
-          : <ExplainerScene project={project} scene={segment.scene} caption={segment.text} index={index} durationFrames={frames} beatId={segment.beatId} />}
+          : <ExplainerScene project={project} scene={segment.scene} caption={segment.text} index={index} durationFrames={frames} beatId={segment.beatId} operationCues={segment.operationCues} />}
         {segment.audio ? <Audio src={staticFile(segment.audio)} /> : null}
       </Sequence>;
     })}

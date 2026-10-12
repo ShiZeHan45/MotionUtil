@@ -1,17 +1,18 @@
 import { spawn } from "node:child_process";
 import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
-import type { NarrationSegment, ProjectScript, RenderProject } from "../types";
+import type { NarrationSegment, OperationSpeechPart, ProjectScript, RenderProject } from "../types";
 import { config } from "../lib/config";
 import { writeJson } from "../lib/io";
 import { repoSlug } from "../lib/paths";
 import { persistHookReview, shortenScriptForDuration } from "./script";
 import { loadNarrationTiming, MAX_VIDEO_DURATION_MS, recordNarrationTiming, spokenTimeline } from "../lib/narration";
 import { validateOpeningHook } from "../lib/opening-hook";
+import { operationSpeechParts, validateOperationCues } from "../lib/operation-timing";
 
 type WavInfo = { durationMs: number; sampleRate: number; channels: number; byteRate: number };
 type ScriptWithSpokenText = Omit<ProjectScript, "narrationSegments"> & {
-  narrationSegments: Array<NarrationSegment & { spokenText: string }>;
+  narrationSegments: Array<NarrationSegment & { spokenText: string; speechParts?: OperationSpeechPart[] }>;
 };
 type KokoroOutput = { projects: RenderProject[] };
 const RESULT_PREFIX = "KOKORO_RESULT:";
@@ -103,7 +104,7 @@ function runKokoro(scripts: ScriptWithSpokenText[], audioDirectory: string, spee
 function prepareScripts(scripts: ProjectScript[], substitutions: Array<[string, string]>): ScriptWithSpokenText[] {
   return scripts.map((script) => ({
     ...script,
-    narrationSegments: spokenTimeline(script, substitutions),
+    narrationSegments: spokenTimeline(script, substitutions).map((segment) => ({ ...segment, speechParts: operationSpeechParts(segment) })),
   }));
 }
 
@@ -123,6 +124,7 @@ async function inspectProjects(projects: RenderProject[], scripts: ProjectScript
         throw new Error(`Kokoro WAV 格式不符：${segment.audio}（${info.sampleRate} Hz，${info.channels} 声道）`);
       }
       segment.durationMs = info.durationMs;
+      validateOperationCues(segment, project.repo);
       console.log(`  ${segment.scene}: ${(info.durationMs / 1_000).toFixed(1)} 秒`);
     }
     const totalDurationMs = project.narrationSegments.reduce((total, segment) => total + segment.durationMs, 0);
@@ -192,7 +194,7 @@ export async function synthesizeScripts(scripts: ProjectScript[], audioDirectory
   await writeJson(path.join(audioDirectory, "index.json"), projects.map((project) => ({
     repo: project.repo,
     rank: project.rank,
-    segments: project.narrationSegments.map(({ scene, audio, durationMs }) => ({ scene, audio, durationMs })),
+    segments: project.narrationSegments.map(({ scene, audio, durationMs, operationCues }) => ({ scene, audio, durationMs, operationCues })),
   })));
   await writeJson(path.join(audioDirectory, "render-projects.json"), projects);
   await writeJson(path.join(audioDirectory, "duration-adjustments.json"), { maxRevisions: MAX_AUTO_REVISIONS, maxDurationMs: MAX_VIDEO_DURATION_MS, adjustments: durationAdjustments, status: "passed" });

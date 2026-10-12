@@ -43,13 +43,27 @@ def main() -> None:
         rendered_segments = []
         for segment_index, segment in enumerate(segments):
             text = segment.get("spokenText", segment["text"])
-            audio_parts = [
-                result.audio.detach().cpu().numpy().astype(np.float32, copy=False)
-                for result in pipeline(text, voice=voice, speed=speed, split_pattern=None)
-                if result.audio is not None
-            ]
-            if not audio_parts:
-                raise RuntimeError(f"Kokoro returned no audio for {script['repo']} / {segment['scene']}")
+            speech_parts = segment.get("speechParts") or [{"spokenText": text}]
+            audio_parts = []
+            operation_cues = []
+            sample_cursor = 0
+            for part in speech_parts:
+                part_audio = [
+                    result.audio.detach().cpu().numpy().astype(np.float32, copy=False)
+                    for result in pipeline(part["spokenText"], voice=voice, speed=speed, split_pattern=None)
+                    if result.audio is not None
+                ]
+                part_samples = sum(len(audio) for audio in part_audio)
+                if not part_samples:
+                    raise RuntimeError(f"Kokoro returned no audio for {script['repo']} / {segment['scene']}")
+                if "stepIndex" in part:
+                    operation_cues.append({
+                        **part,
+                        "startMs": round(sample_cursor * 1_000 / sample_rate),
+                        "endMs": round((sample_cursor + part_samples) * 1_000 / sample_rate),
+                    })
+                sample_cursor += part_samples
+                audio_parts.extend(part_audio)
             audio = np.concatenate(audio_parts)
             if pause_samples and segment_index < len(segments) - 1:
                 audio = np.concatenate((audio, np.zeros(pause_samples, dtype=np.float32)))
@@ -59,10 +73,11 @@ def main() -> None:
             sf.write(audio_path, audio, sample_rate, subtype="PCM_16")
             duration_ms = round(len(audio) * 1_000 / sample_rate)
             rendered_segments.append({
-                **segment,
+                **{key: value for key, value in segment.items() if key != "speechParts"},
                 "audio": str(audio_path),
                 "durationMs": duration_ms,
                 "spokenText": text,
+                **({"operationCues": operation_cues} if operation_cues else {}),
             })
             print(
                 f"{script['repo']} {segment['scene']}: {duration_ms / 1_000:.1f}s",
