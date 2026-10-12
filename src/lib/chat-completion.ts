@@ -16,6 +16,8 @@ type ResponsesResult = {
   error?: CompletionChunk["error"];
   status?: string;
   incomplete_details?: { reason?: string };
+  max_output_tokens?: number;
+  usage?: { output_tokens?: number; output_tokens_details?: { reasoning_tokens?: number } };
 };
 type ResponsesChunk = {
   type?: string;
@@ -32,6 +34,10 @@ class ModelRequestError extends Error {
   }
 }
 
+class ModelOutputLimitError extends ModelRequestError {
+  constructor(message: string) { super(message, false); }
+}
+
 // Buzz 的 xhigh 请求可能先思考数分钟才发送正文；每次尝试允许连续
 // 20 分钟没有响应数据，再交给网络重试机制。请求本身不设总时长上限。
 const MODEL_IDLE_TIMEOUT_MS = 1_200_000;
@@ -39,6 +45,8 @@ const MODEL_IDLE_TIMEOUT_MS = 1_200_000;
 // Without an explicit limit, Buzz can spend the provider default entirely on
 // xhigh reasoning and return response.incomplete(max_output_tokens).
 const MODEL_OUTPUT_TOKEN_LIMIT = 64_000;
+// BigModel's documented Responses ceiling includes both reasoning and answer.
+const BIGMODEL_RECOVERY_TOKEN_LIMIT = 131_072;
 
 async function readResponseText(response: Response, onActivity: () => void): Promise<string> {
   if (!response.body) return "";
@@ -147,20 +155,28 @@ function responseText(result: ResponsesResult): string {
 }
 
 function validateResponseStatus(result: ResponsesResult): void {
+  const outputTokens = result.usage?.output_tokens;
+  const reasoningTokens = result.usage?.output_tokens_details?.reasoning_tokens;
+  if (typeof outputTokens === "number") {
+    console.log(`[节点 3] 本次模型输出 ${outputTokens} tokens${typeof reasoningTokens === "number" ? `，其中思考 ${reasoningTokens} tokens` : ""}${typeof result.max_output_tokens === "number" ? `；输出额度 ${result.max_output_tokens}` : ""}`);
+  }
   if (result.error || result.status === "failed") {
     const message = getErrorMessage(result.error);
     throw new ModelRequestError(safeMessage(message), isRetryableStreamError(message));
   }
   if (result.status === "incomplete") {
     const reason = result.incomplete_details?.reason;
-    throw new ModelRequestError(`模型未生成完整讲稿${reason ? `（${safeMessage(reason)}）` : ""}`, reason !== "max_output_tokens" && reason !== "content_filter");
+    if (reason === "max_output_tokens") {
+      throw new ModelOutputLimitError(`模型未生成完整讲稿（max_output_tokens，思考与正文共用的输出额度已耗尽${typeof outputTokens === "number" ? `，已使用 ${outputTokens} tokens` : ""}${typeof reasoningTokens === "number" ? `，其中思考 ${reasoningTokens} tokens` : ""}）`);
+    }
+    throw new ModelRequestError(`模型未生成完整讲稿${reason ? `（${safeMessage(reason)}）` : ""}`, reason !== "content_filter");
   }
   if (result.status && result.status !== "completed") {
     throw new ModelRequestError(`模型响应尚未完成（${safeMessage(result.status)}）`, true);
   }
 }
 
-async function readResponsesCompletion(response: Response, onContent: (length: number) => void, onActivity: () => void): Promise<string> {
+async function readResponsesCompletion(response: Response, onContent: (length: number) => void, onActivity: () => void, onReasoning: () => void): Promise<string> {
   const contentType = response.headers.get("content-type") ?? "";
   if (!contentType.includes("text/event-stream")) {
     const body = JSON.parse(await readResponseText(response, onActivity)) as ResponsesResult;
@@ -183,6 +199,7 @@ async function readResponsesCompletion(response: Response, onContent: (length: n
     if (!data) return;
     if (data === "[DONE]") return;
     const chunk = JSON.parse(data) as ResponsesChunk;
+    if (chunk.type?.startsWith("response.reasoning")) onReasoning();
     if (chunk.type === "error") {
       const message = getErrorMessage(chunk.error ?? { message: chunk.message, code: chunk.code });
       throw new ModelRequestError(safeMessage(message), isRetryableStreamError(message));
@@ -241,16 +258,18 @@ export async function requestChatCompletion(messages: ChatMessage[]): Promise<st
   const endpoint = isResponsesEndpoint || isChatEndpoint
     ? service
     : `${service}/${useResponses ? "responses" : "chat/completions"}`;
-  const effort = config.openAiReasoningEffort;
-  const requestBody = useResponses
-    ? { model: config.openAiModel, stream: true, store: false, input: isBigModel ? messages.map((message) => ({ type: "message", ...message })) : messages, max_output_tokens: MODEL_OUTPUT_TOKEN_LIMIT, ...(effort ? { reasoning: { effort } } : {}) }
-    : { model: config.openAiModel, stream: false, messages, ...(effort ? { reasoning_effort: effort } : { temperature: 0.35 }) };
+  let effort = config.openAiReasoningEffort;
+  let outputTokenLimit = MODEL_OUTPUT_TOKEN_LIMIT;
+  let recoveredOutputLimit = false;
   console.log(`[节点 3] 请求接口：${useResponses ? "Responses API" : "Chat Completions"}；地址：${endpoint}；思考强度：${effort ?? "自动"}`);
   // A VPN can briefly drop the connection. Give transient network failures
   // three automatic retries; each attempt is governed only by the idle limit.
   const maxRetries = 3;
   const attempts = maxRetries + 1;
   for (let attempt = 1; attempt <= attempts; attempt++) {
+    const requestBody = useResponses
+      ? { model: config.openAiModel, stream: true, store: false, input: isBigModel ? messages.map((message) => ({ type: "message", ...message })) : messages, max_output_tokens: outputTokenLimit, ...(effort ? { reasoning: { effort } } : {}) }
+      : { model: config.openAiModel, stream: false, messages, ...(effort ? { reasoning_effort: effort } : { temperature: 0.35 }) };
     const started = Date.now();
     let received = 0;
     let phase = "等待服务响应";
@@ -295,7 +314,7 @@ export async function requestChatCompletion(messages: ChatMessage[]): Promise<st
         throw new ModelRequestError(`${service} 返回 HTTP ${response.status}${detail ? `：${safeMessage(detail)}` : response.status === 524 ? "：服务网关等待模型超时" : ""}`, retryable, Math.min(20_000, retryAfterMs || 0));
       }
       return await (useResponses
-        ? readResponsesCompletion(response, (length) => { received = length; }, onActivity)
+        ? readResponsesCompletion(response, (length) => { received = length; }, onActivity, () => { if (!received) phase = "模型正在思考，等待正文"; })
         : readCompletion(response, (length) => { received = length; }, onActivity));
     } catch (error) {
       if (error instanceof ModelRequestError) failure = error;
@@ -313,9 +332,23 @@ export async function requestChatCompletion(messages: ChatMessage[]): Promise<st
       clearTimeout(idleTimer!);
       requestController.abort();
     }
+    if (failure instanceof ModelOutputLimitError && isBigModel && useResponses && !recoveredOutputLimit) {
+      recoveredOutputLimit = true;
+      outputTokenLimit = BIGMODEL_RECOVERY_TOKEN_LIMIT;
+      // Automatic initially uses the provider default (BigModel: max). If it
+      // exhausts the budget, reduce only this recovery request's reasoning.
+      // Explicit user-selected efforts are never silently downgraded.
+      if (!config.openAiReasoningEffort) effort = "low";
+      console.log(`[节点 3] 输出额度耗尽，自动恢复（1/1）：额度 ${outputTokenLimit} tokens；${config.openAiReasoningEffort ? `保留思考强度 ${effort}` : "自动模式本次改用 low 思考强度"}；重新生成完整结果`);
+      // This is a distinct bounded recovery, not one of the three network retries.
+      attempt--;
+      continue;
+    }
     if (!failure.retryable || attempt === attempts) {
-      const retrySummary = failure.retryable ? `网络重试 ${maxRetries} 次后仍失败` : "非网络错误，未重试";
-      throw new Error(`节点 3 讲稿请求失败（模型 ${config.openAiModel}）：${failure.message}。${retrySummary}。已生成项目的缓存已保留，可从节点 3 继续。`);
+      const retrySummary = failure.retryable ? `网络重试 ${maxRetries} 次后仍失败` : "此错误不属于网络重试";
+      const recoverySummary = recoveredOutputLimit ? "输出额度自动恢复已尝试 1 次。" : "";
+      const suggestion = failure instanceof ModelOutputLimitError ? "请调低模型思考强度后重跑节点 3，延长网络等待时间不会增加输出额度。" : "";
+      throw new Error(`节点 3 讲稿请求失败（模型 ${config.openAiModel}）：${failure.message}。${recoverySummary}${retrySummary}。${suggestion}已生成项目的缓存已保留，可从节点 3 继续。`);
     }
     const delayMs = Math.max(attempt * 2_000, failure.retryAfterMs);
     const reason = failure.message.includes("未返回数据") ? "服务无响应" : "网络波动";
