@@ -12,7 +12,7 @@ type CompletionChunk = {
 
 type ResponsesResult = {
   output_text?: string;
-  output?: Array<{ type?: string; role?: string; content?: Array<{ type?: string; text?: string }> }>;
+  output?: Array<{ type?: string; role?: string; content?: { type?: string; text?: string } | Array<{ type?: string; text?: string }> }>;
   error?: CompletionChunk["error"];
   status?: string;
   incomplete_details?: { reason?: string };
@@ -226,17 +226,26 @@ async function readResponsesCompletion(response: Response, onContent: (length: n
 }
 
 export async function requestChatCompletion(messages: ChatMessage[]): Promise<string> {
-  const service = config.openAiBaseUrl;
-  const serviceHost = new URL(service).hostname;
-  // Codex and GPT-5/6 reasoning models use Responses; retain Chat Completions
-  // compatibility for other providers and model families.
-  const useResponses = /^(?:gpt-[56](?:[.-]|$)|codex(?:[.-]|$))/iu.test(config.openAiModel ?? "");
-  const endpoint = `${service}/${useResponses ? "responses" : "chat/completions"}`;
+  const service = config.openAiBaseUrl.replace(/\/+$/u, "");
+  const serviceUrl = new URL(service);
+  const serviceHost = serviceUrl.hostname;
+  // BigModel uses separate bases: /api/v1 for Responses, /api/paas/v4
+  // (including its coding variant) for Chat Completions. The chosen base
+  // determines the protocol even when both endpoints use the same GLM model.
+  const isBigModel = serviceHost === "open.bigmodel.cn";
+  const isResponsesEndpoint = /\/responses$/u.test(serviceUrl.pathname);
+  const isChatEndpoint = /\/chat\/completions$/u.test(serviceUrl.pathname);
+  const useResponses = isResponsesEndpoint || (!isChatEndpoint && (isBigModel
+    ? serviceUrl.pathname === "/api/v1"
+    : /^(?:gpt-[56](?:[.-]|$)|codex(?:[.-]|$))/iu.test(config.openAiModel ?? "")));
+  const endpoint = isResponsesEndpoint || isChatEndpoint
+    ? service
+    : `${service}/${useResponses ? "responses" : "chat/completions"}`;
   const effort = config.openAiReasoningEffort;
   const requestBody = useResponses
-    ? { model: config.openAiModel, stream: true, store: false, input: messages, max_output_tokens: MODEL_OUTPUT_TOKEN_LIMIT, ...(effort ? { reasoning: { effort } } : {}) }
+    ? { model: config.openAiModel, stream: true, store: false, input: isBigModel ? messages.map((message) => ({ type: "message", ...message })) : messages, max_output_tokens: MODEL_OUTPUT_TOKEN_LIMIT, ...(effort ? { reasoning: { effort } } : {}) }
     : { model: config.openAiModel, stream: false, messages, ...(effort ? { reasoning_effort: effort } : { temperature: 0.35 }) };
-  console.log(`[节点 3] 请求接口：${useResponses ? "Responses API" : "Chat Completions"}；思考强度：${effort ?? "自动"}`);
+  console.log(`[节点 3] 请求接口：${useResponses ? "Responses API" : "Chat Completions"}；地址：${endpoint}；思考强度：${effort ?? "自动"}`);
   // A VPN can briefly drop the connection. Give transient network failures
   // three automatic retries; each attempt is governed only by the idle limit.
   const maxRetries = 3;
