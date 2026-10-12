@@ -10,7 +10,7 @@ import { config } from "../lib/config";
 import { repoSlug } from "../lib/paths";
 import { writeJson } from "../lib/io";
 import { durationInFrames, framesForMs, FPS, type VideoProps } from "../video/ProjectVideo";
-import { isBadgeAsset } from "../lib/visual-assets";
+import { isExcludedEvidenceAsset } from "../lib/visual-assets";
 
 const execFileAsync = promisify(execFile);
 
@@ -94,8 +94,8 @@ async function stageAssets(project: RenderProject, runId: string): Promise<Rende
   }
   const visualAssets: NonNullable<RenderProject["visualAssets"]> = [];
   for (const asset of project.visualAssets ?? []) {
-    if (isBadgeAsset(asset)) {
-      console.log(`[节点 5] 跳过徽标：${project.repo} / ${asset.label}`);
+    if (isExcludedEvidenceAsset(asset)) {
+      console.log(`[节点 5] 跳过非证据素材（徽标或独立图标）：${project.repo} / ${asset.label}`);
       continue;
     }
     const filename = path.basename(asset.path);

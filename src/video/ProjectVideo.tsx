@@ -2,7 +2,7 @@ import React from "react";
 import { AbsoluteFill, Audio, Img, Loop, OffthreadVideo, Sequence, Video, cancelRender, continueRender, delayRender, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
 import type { ConceptBeat, ConceptConnector, ConceptObject, ConceptStoryboard, LeaderboardContext, RenderProject, TrendingRepo } from "../types";
 import { leaderboardPresentation } from "../lib/leaderboard";
-import { isBadgeAsset } from "../lib/visual-assets";
+import { isExcludedEvidenceAsset } from "../lib/visual-assets";
 import { selectedOpeningHook } from "../lib/opening-hook";
 import { LayoutGuard, TextBlock, textLayout, textProgress, VIDEO_FONT } from "./text-layout";
 import { connectorId, layoutConceptGraph, type ConceptGraphLayout, type GraphEdge, type GraphNode } from "./concept-layout";
@@ -253,7 +253,7 @@ function EvidencePanel({ project, assetId, top, durationFrames }: { project: Ren
   const asset = project.visualAssets?.find((item) => item.id === assetId);
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
-  if (!asset) return null;
+  if (!asset || isExcludedEvidenceAsset(asset)) return null;
   const entrance = spring({ frame: frame - 8, fps, config: { damping: 20, mass: 0.8 } });
   const labelLayout = textLayout(asset.label, 778, 84, 23, 22, 900);
   const headerHeight = labelLayout.height + 24;
@@ -539,7 +539,7 @@ function ExplainerScene({ project, scene, caption, index, durationFrames, beatId
   const content = sections[scene] ?? sections.problem!;
   const evidenceByScene: Record<string, string> = { case: "org-chart", dashboard: "dashboard", setup: "setup-wizard", workflow: "task-inbox" };
   const preferredEvidenceId = evidenceByScene[scene];
-  const visualAssets = project.visualAssets?.filter((asset) => !isBadgeAsset(asset));
+  const visualAssets = project.visualAssets?.filter((asset) => !isExcludedEvidenceAsset(asset));
   const preferredAsset = visualAssets?.find((asset) => asset.id === preferredEvidenceId);
   const fallbackIndex: Record<string, number> = { case: 0, dashboard: 1, setup: 2, workflow: 3 };
   const evidenceId = preferredAsset?.id ?? visualAssets?.[fallbackIndex[scene] ?? 0]?.id;
