@@ -260,7 +260,17 @@ export function validateStoryboardLayout(storyboard: ConceptStoryboard): Storybo
 }
 
 function parseScripts(content: string, facts: RepoFacts[], timing: NarrationTiming, preparations: Map<string, HookPreparation>): ProjectScript[] {
-  const parsed = responseSchema.parse(safeJson(content));
+  let parsed: z.infer<typeof responseSchema>;
+  try {
+    parsed = responseSchema.parse(safeJson(content));
+  } catch (error) {
+    // Save the malformed response for debugging
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const debugPath = path.resolve(".cache", "scripts", `malformed-response-${timestamp}.txt`);
+    writeJson(debugPath, { error: error instanceof Error ? error.message : String(error), content, timestamp }).catch(() => {});
+    console.log(`[节点 3] JSON 解析失败，原始响应已保存到 ${debugPath}`);
+    throw error;
+  }
   if (parsed.scripts.length !== facts.length) throw new Error(`讲稿数量错误：请求 ${facts.length} 个，返回 ${parsed.scripts.length} 个`);
   const byRepo = new Map(parsed.scripts.map((script) => [script.repo.toLowerCase(), script]));
   return facts.map((source) => {
