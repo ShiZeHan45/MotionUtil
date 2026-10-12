@@ -29,7 +29,7 @@ test("xhigh uses Responses and returns only completed assistant text", async (co
   context.mock.method(globalThis, "fetch", async (url: string, options: RequestInit) => {
     assert.equal(url, "https://example.invalid/v1/responses");
     const body = JSON.parse(options.body as string);
-    assert.deepEqual(body, { model: "gpt-6.1-sol", stream: true, store: false, input: messages, reasoning: { effort: "xhigh" } });
+    assert.deepEqual(body, { model: "gpt-6.1-sol", stream: true, store: false, input: messages, max_output_tokens: 64_000, reasoning: { effort: "xhigh" } });
     return stream(event("response.reasoning_summary_text.delta", { delta: "内部思考" })
       + event("response.output_text.delta", { delta: "讲稿正文" })
       + event("response.completed", { response: completed }));

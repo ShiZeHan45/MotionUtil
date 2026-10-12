@@ -35,6 +35,10 @@ class ModelRequestError extends Error {
 // Buzz 的 xhigh 请求可能先思考数分钟才发送正文；每次尝试允许连续
 // 20 分钟没有响应数据，再交给网络重试机制。请求本身不设总时长上限。
 const MODEL_IDLE_TIMEOUT_MS = 1_200_000;
+// The Responses API counts reasoning and the structured JSON answer together.
+// Without an explicit limit, Buzz can spend the provider default entirely on
+// xhigh reasoning and return response.incomplete(max_output_tokens).
+const MODEL_OUTPUT_TOKEN_LIMIT = 64_000;
 
 async function readResponseText(response: Response, onActivity: () => void): Promise<string> {
   if (!response.body) return "";
@@ -230,7 +234,7 @@ export async function requestChatCompletion(messages: ChatMessage[]): Promise<st
   const endpoint = `${service}/${useResponses ? "responses" : "chat/completions"}`;
   const effort = config.openAiReasoningEffort;
   const requestBody = useResponses
-    ? { model: config.openAiModel, stream: true, store: false, input: messages, ...(effort ? { reasoning: { effort } } : {}) }
+    ? { model: config.openAiModel, stream: true, store: false, input: messages, max_output_tokens: MODEL_OUTPUT_TOKEN_LIMIT, ...(effort ? { reasoning: { effort } } : {}) }
     : { model: config.openAiModel, stream: false, messages, ...(effort ? { reasoning_effort: effort } : { temperature: 0.35 }) };
   console.log(`[节点 3] 请求接口：${useResponses ? "Responses API" : "Chat Completions"}；思考强度：${effort ?? "自动"}`);
   // A VPN can briefly drop the connection. Give transient network failures

@@ -520,7 +520,9 @@ function ExplainerScene({ project, scene, caption, index, durationFrames, beatId
   const setupDetail = requirements.length > 0
     ? `先准备：${requirements.slice(0, 2).join("；")}`
     : `先准备项目所需环境，再按 README 完成首次启动。`;
-  const workflowMain = steps.length > 0 ? steps.slice(0, 3).join("  →  ") : flow.slice(0, 3).join("  →  ");
+  const stepLabels = ["第一步", "第二步", "第三步", "第四步", "第五步"];
+  const orderedSteps = steps.map((step, index) => `${stepLabels[index] ?? `第${index + 1}步`}：${step}`);
+  const workflowMain = orderedSteps.length > 0 ? orderedSteps.join("  →  ") : flow.slice(0, 3).join("  →  ");
   const workflowDetail = project.usage || project.exampleResult;
   const requirementsMain = requirements.join(" · ") || "按项目文档准备运行环境";
   const requirementsDetail = limitations.join("；") || "实际效果取决于项目配置。";
