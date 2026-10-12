@@ -28,6 +28,7 @@ public sealed class MainForm : Form
     private readonly FlowLayoutPanel _environmentList = new() { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, Padding = new Padding(18, 14, 18, 14) };
     private readonly Dictionary<string, EnvironmentCard> _environmentCards = [];
     private readonly Dictionary<string, TextBox> _settingBoxes = [];
+    private readonly ComboBox _providerBox = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 300 };
     private readonly ComboBox _deviceBox = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 150 };
     private readonly ComboBox _reasoningBox = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 150 };
     private readonly ComboBox _voiceBox = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 210, IntegralHeight = false, MaxDropDownItems = 18 };
@@ -288,6 +289,7 @@ public sealed class MainForm : Form
         _settingsStore.Save(_settings);
         if (_tabs.TabPages[2].Controls[0] is Panel panel && panel.Controls[0] is Panel tablePanel && tablePanel.Controls[0] is DataGridView grid)
             RefreshProvidersGrid(grid);
+        RefreshProviderBox();
         MessageBox.Show("供应商已添加。", "成功", MessageBoxButtons.OK, MessageBoxIcon.Information);
     }
 
@@ -299,6 +301,7 @@ public sealed class MainForm : Form
         if (editor.ShowDialog() != DialogResult.OK) return;
         _settingsStore.Save(_settings);
         RefreshProvidersGrid(grid);
+        RefreshProviderBox();
         MessageBox.Show("供应商已更新。", "成功", MessageBoxButtons.OK, MessageBoxIcon.Information);
     }
 
@@ -317,6 +320,7 @@ public sealed class MainForm : Form
         if (_settings.SelectedProviderId == providerId) _settings.SelectedProviderId = _settings.ModelProviders.FirstOrDefault()?.Id ?? "";
         _settingsStore.Save(_settings);
         RefreshProvidersGrid(grid);
+        RefreshProviderBox();
         MessageBox.Show("供应商已删除。", "成功", MessageBoxButtons.OK, MessageBoxIcon.Information);
     }
 
@@ -332,20 +336,17 @@ public sealed class MainForm : Form
         AddSetting(table, "视频输出目录", "output", _settings.OutputDirectory, "留空则使用项目目录下的 output", browse: true);
 
         var providerLabel = new Label { Text = "模型供应商", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(0, 12, 12, 12) };
-        var providerBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 300, Margin = new Padding(0, 8, 12, 8) };
-        foreach (var provider in _settings.ModelProviders) providerBox.Items.Add(provider.Name);
-        var selectedProvider = _settings.GetSelectedProvider();
-        if (selectedProvider != null) providerBox.SelectedItem = selectedProvider.Name;
-        else if (providerBox.Items.Count > 0) providerBox.SelectedIndex = 0;
-        providerBox.SelectedIndexChanged += (_, _) =>
+        RefreshProviderBox();
+        _providerBox.Margin = new Padding(0, 8, 12, 8);
+        _providerBox.SelectedIndexChanged += (_, _) =>
         {
-            if (providerBox.SelectedIndex >= 0 && providerBox.SelectedIndex < _settings.ModelProviders.Count)
-                _settings.SelectedProviderId = _settings.ModelProviders[providerBox.SelectedIndex].Id;
+            if (_providerBox.SelectedIndex >= 0 && _providerBox.SelectedIndex < _settings.ModelProviders.Count)
+                _settings.SelectedProviderId = _settings.ModelProviders[_providerBox.SelectedIndex].Id;
         };
         var providerHelp = new Label { Text = "在 \"供应商\" 页面管理", AutoSize = true, ForeColor = Color.FromArgb(100, 116, 139), Margin = new Padding(0, 12, 0, 12), MaximumSize = new Size(220, 0) };
         table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         table.Controls.Add(providerLabel, 0, table.RowCount);
-        table.Controls.Add(providerBox, 1, table.RowCount);
+        table.Controls.Add(_providerBox, 1, table.RowCount);
         table.Controls.Add(providerHelp, 2, table.RowCount);
         table.RowCount++;
 
@@ -1238,6 +1239,26 @@ public sealed class MainForm : Form
         public void SetEta(string text) => _eta.Text = text;
         public void SetDescription(string text) => _description.Text = text;
         public void SetRunEnabled(bool enabled) => _run.Enabled = enabled;
+    }
+
+    private void RefreshProviderBox()
+    {
+        var previousSelection = _providerBox.SelectedItem?.ToString();
+        _providerBox.Items.Clear();
+        foreach (var provider in _settings.ModelProviders) _providerBox.Items.Add(provider.Name);
+        var selectedProvider = _settings.GetSelectedProvider();
+        if (selectedProvider != null)
+        {
+            _providerBox.SelectedItem = selectedProvider.Name;
+        }
+        else if (!string.IsNullOrEmpty(previousSelection) && _providerBox.Items.Contains(previousSelection))
+        {
+            _providerBox.SelectedItem = previousSelection;
+        }
+        else if (_providerBox.Items.Count > 0)
+        {
+            _providerBox.SelectedIndex = 0;
+        }
     }
 
     private sealed class EnvironmentCard : Panel
