@@ -19,6 +19,13 @@ export const hookFactsSchema = z.object({
 });
 export type HookPreparation = z.infer<typeof hookFactsSchema>;
 
+// The model selects evidence; the program copies it from the collected source.
+// Quoting Markdown twice invites omissions and paraphrases even during repair.
+export const hookEvidenceSelectionSchema = hookFactsSchema.extend({
+  facts: z.array(hookFactSchema.omit({ point: true, sourceExcerpt: true })).min(1).max(10),
+});
+export type HookEvidenceSelection = z.infer<typeof hookEvidenceSelectionSchema>;
+
 export const hookSelectionSchema = z.object({
   candidates: z.array(z.object({
     id: z.string().regex(/^hook-[1-5]$/),
@@ -94,6 +101,30 @@ export function hookMaterials(facts: RepoFacts): HookMaterial[] {
       .map((sentence) => sentence.trim()).filter(Boolean)
       .map((sentence, index) => ({ number: index + 1, text: sentence })),
   }));
+}
+
+export function selectableHookMaterials(materials: HookMaterial[]): HookMaterial[] {
+  return materials.map((material) => ({
+    sourceUrl: material.sourceUrl,
+    sentences: material.sentences.filter((sentence) => hookFactSchema.shape.point.safeParse(sentence.text).success),
+  })).filter((material) => material.sentences.length > 0);
+}
+
+export function materializeHookFacts(selection: HookEvidenceSelection, materials: HookMaterial[]): HookPreparation {
+  const selectable = selectableHookMaterials(materials);
+  const preparation = hookFactsSchema.parse({
+    ...selection,
+    facts: selection.facts.map((fact) => {
+      const material = selectable.find((item) => item.sourceUrl === fact.sourceUrl);
+      const sentence = material?.sentences.find((item) => item.number === fact.sentenceNumber);
+      if (!sentence) {
+        throw new Error(`${fact.id} 选择了不存在或不在可选材料中的原文：${fact.sourceUrl} 第 ${fact.sentenceNumber} 句；只能选择输入 materials 中的 sourceUrl 和 number`);
+      }
+      return { ...fact, point: sentence.text, sourceExcerpt: sentence.text };
+    }),
+  });
+  validateHookFacts(preparation, materials);
+  return preparation;
 }
 
 export function validateHookFacts(preparation: HookPreparation, materials: HookMaterial[]): void {
