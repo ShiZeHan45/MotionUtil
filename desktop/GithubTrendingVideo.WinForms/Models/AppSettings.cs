@@ -1,5 +1,18 @@
 namespace GitHubTrendingVideo.Models;
 
+public sealed class ModelProvider
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string Name { get; set; } = "";
+    public string BaseUrl { get; set; } = "";
+    public string DefaultModel { get; set; } = "";
+    public string ApiKey { get; set; } = "";
+    public string Protocol { get; set; } = "auto";
+    public bool CompleteUrl { get; set; }
+    public string ReasoningParamType { get; set; } = "auto";
+    public string CustomReasoningParam { get; set; } = "";
+}
+
 public sealed class AppSettings
 {
     public const string BuzzBaseUrl = "https://api.buzzai.cc/v1";
@@ -11,10 +24,9 @@ public sealed class AppSettings
 
     public string ProjectDirectory { get; set; } = "";
     public string OutputDirectory { get; set; } = "";
-    public string OpenAiBaseUrl { get; set; } = BuzzBaseUrl;
-    public string OpenAiModel { get; set; } = "";
+    public List<ModelProvider> ModelProviders { get; set; } = [];
+    public string SelectedProviderId { get; set; } = "";
     public string OpenAiReasoningEffort { get; set; } = "";
-    public string OpenAiApiKey { get; set; } = "";
     public string GithubToken { get; set; } = "";
     public int TrendingTopN { get; set; } = 5;
     public string LeaderboardSource { get; set; } = "github-trending";
@@ -24,6 +36,8 @@ public sealed class AppSettings
     public decimal KokoroSpeed { get; set; } = 1.0m;
     public string RemotionBrowserExecutable { get; set; } = "";
     public string VideoBackgroundPath { get; set; } = "";
+
+    public ModelProvider? GetSelectedProvider() => ModelProviders.FirstOrDefault(p => p.Id == SelectedProviderId);
 
     public static string NormalizeReasoningEffort(string? value) => value?.Trim().ToLowerInvariant() switch
     {
@@ -35,6 +49,22 @@ public sealed class AppSettings
     };
 
     public static string NormalizeLeaderboardSource(string? value) => value == "star-history" ? "star-history" : "github-trending";
+
+    public static string NormalizeProtocol(string? value) => value?.Trim().ToLowerInvariant() switch
+    {
+        "responses" => "responses",
+        "chat" => "chat",
+        _ => "auto",
+    };
+
+    public static string NormalizeReasoningParamType(string? value) => value?.Trim().ToLowerInvariant() switch
+    {
+        "reasoning.effort" => "reasoning.effort",
+        "reasoning_effort" => "reasoning_effort",
+        "none" => "none",
+        "custom" => "custom",
+        _ => "auto",
+    };
 }
 
 public sealed class PipelineReport

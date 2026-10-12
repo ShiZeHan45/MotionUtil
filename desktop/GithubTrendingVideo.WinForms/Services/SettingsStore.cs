@@ -14,10 +14,9 @@ public sealed class SettingsStore(RuntimePaths paths)
     {
         public string ProjectDirectory { get; set; } = "";
         public string OutputDirectory { get; set; } = "";
-        public string OpenAiBaseUrl { get; set; } = AppSettings.BuzzBaseUrl;
-        public string OpenAiModel { get; set; } = "";
+        public List<StoredProvider> ModelProviders { get; set; } = [];
+        public string SelectedProviderId { get; set; } = "";
         public string OpenAiReasoningEffort { get; set; } = "";
-        public string OpenAiApiKey { get; set; } = "";
         public string GithubToken { get; set; } = "";
         public int TrendingTopN { get; set; } = 5;
         public string LeaderboardSource { get; set; } = "github-trending";
@@ -29,21 +28,44 @@ public sealed class SettingsStore(RuntimePaths paths)
         public string VideoBackgroundPath { get; set; } = "";
     }
 
+    private sealed class StoredProvider
+    {
+        public string Id { get; set; } = "";
+        public string Name { get; set; } = "";
+        public string BaseUrl { get; set; } = "";
+        public string DefaultModel { get; set; } = "";
+        public string ApiKey { get; set; } = "";
+        public string Protocol { get; set; } = "auto";
+        public bool CompleteUrl { get; set; }
+        public string ReasoningParamType { get; set; } = "auto";
+        public string CustomReasoningParam { get; set; } = "";
+    }
+
     public AppSettings Load()
     {
         try
         {
             if (!File.Exists(paths.SettingsFile)) return new AppSettings();
             var stored = JsonSerializer.Deserialize<StoredSettings>(File.ReadAllText(paths.SettingsFile), JsonOptions) ?? new StoredSettings();
-            var apiKey = TryUnprotect(stored.OpenAiApiKey);
+            var providers = stored.ModelProviders.Select(p => new ModelProvider
+            {
+                Id = p.Id,
+                Name = p.Name,
+                BaseUrl = p.BaseUrl,
+                DefaultModel = p.DefaultModel,
+                ApiKey = TryUnprotect(p.ApiKey),
+                Protocol = AppSettings.NormalizeProtocol(p.Protocol),
+                CompleteUrl = p.CompleteUrl,
+                ReasoningParamType = AppSettings.NormalizeReasoningParamType(p.ReasoningParamType),
+                CustomReasoningParam = p.CustomReasoningParam,
+            }).ToList();
             var settings = new AppSettings
             {
                 ProjectDirectory = stored.ProjectDirectory,
                 OutputDirectory = stored.OutputDirectory,
-                OpenAiBaseUrl = AppSettings.ResolveModelBaseUrl(stored.OpenAiBaseUrl, apiKey),
-                OpenAiModel = stored.OpenAiModel,
+                ModelProviders = providers,
+                SelectedProviderId = stored.SelectedProviderId,
                 OpenAiReasoningEffort = AppSettings.NormalizeReasoningEffort(stored.OpenAiReasoningEffort),
-                OpenAiApiKey = apiKey,
                 GithubToken = TryUnprotect(stored.GithubToken),
                 TrendingTopN = Math.Clamp(stored.TrendingTopN, 1, 20),
                 LeaderboardSource = AppSettings.NormalizeLeaderboardSource(stored.LeaderboardSource),
@@ -54,11 +76,6 @@ public sealed class SettingsStore(RuntimePaths paths)
                 RemotionBrowserExecutable = stored.RemotionBrowserExecutable,
                 VideoBackgroundPath = stored.VideoBackgroundPath,
             };
-            if (!string.Equals(stored.OpenAiBaseUrl, settings.OpenAiBaseUrl, StringComparison.Ordinal))
-            {
-                stored.OpenAiBaseUrl = settings.OpenAiBaseUrl;
-                SaveStoredSettings(stored);
-            }
             return settings;
         }
         catch (Exception error)
@@ -69,14 +86,25 @@ public sealed class SettingsStore(RuntimePaths paths)
 
     public void Save(AppSettings settings)
     {
+        var providers = settings.ModelProviders.Select(p => new StoredProvider
+        {
+            Id = p.Id,
+            Name = p.Name.Trim(),
+            BaseUrl = p.BaseUrl.Trim(),
+            DefaultModel = p.DefaultModel.Trim(),
+            ApiKey = Protect(p.ApiKey),
+            Protocol = AppSettings.NormalizeProtocol(p.Protocol),
+            CompleteUrl = p.CompleteUrl,
+            ReasoningParamType = AppSettings.NormalizeReasoningParamType(p.ReasoningParamType),
+            CustomReasoningParam = p.CustomReasoningParam.Trim(),
+        }).ToList();
         var stored = new StoredSettings
         {
             ProjectDirectory = settings.ProjectDirectory,
             OutputDirectory = settings.OutputDirectory,
-            OpenAiBaseUrl = AppSettings.ResolveModelBaseUrl(settings.OpenAiBaseUrl, settings.OpenAiApiKey),
-            OpenAiModel = settings.OpenAiModel.Trim(),
+            ModelProviders = providers,
+            SelectedProviderId = settings.SelectedProviderId,
             OpenAiReasoningEffort = AppSettings.NormalizeReasoningEffort(settings.OpenAiReasoningEffort),
-            OpenAiApiKey = Protect(settings.OpenAiApiKey),
             GithubToken = Protect(settings.GithubToken),
             TrendingTopN = Math.Clamp(settings.TrendingTopN, 1, 20),
             LeaderboardSource = AppSettings.NormalizeLeaderboardSource(settings.LeaderboardSource),

@@ -216,12 +216,24 @@ public sealed class PipelineService(RuntimePaths paths, ProcessRunner processes,
     private static Dictionary<string, string?> CreateProcessEnvironment(AppSettings settings, string projectDirectory, string outputDirectory)
     {
         var python = Path.Combine(projectDirectory, ".venv-kokoro", "Scripts", "python.exe");
+        var selectedProvider = settings.GetSelectedProvider();
+        var baseUrl = selectedProvider?.BaseUrl ?? "";
+        var model = selectedProvider?.DefaultModel ?? "";
+        var apiKey = selectedProvider?.ApiKey ?? "";
+        var protocol = selectedProvider?.Protocol ?? "auto";
+        var reasoningParamType = selectedProvider?.ReasoningParamType ?? "auto";
+        var customReasoningParam = selectedProvider?.CustomReasoningParam ?? "";
+
         var env = new Dictionary<string, string?>
         {
-            ["OPENAI_BASE_URL"] = AppSettings.ResolveModelBaseUrl(settings.OpenAiBaseUrl, settings.OpenAiApiKey),
-            ["OPENAI_MODEL"] = settings.OpenAiModel.Trim(),
+            ["OPENAI_BASE_URL"] = baseUrl.Trim().TrimEnd('/'),
+            ["OPENAI_MODEL"] = model.Trim(),
             ["OPENAI_REASONING_EFFORT"] = AppSettings.NormalizeReasoningEffort(settings.OpenAiReasoningEffort),
-            ["OPENAI_API_KEY"] = settings.OpenAiApiKey,
+            ["OPENAI_API_KEY"] = apiKey,
+            ["OPENAI_PROTOCOL"] = AppSettings.NormalizeProtocol(protocol),
+            ["OPENAI_REASONING_PARAM_TYPE"] = AppSettings.NormalizeReasoningParamType(reasoningParamType),
+            ["OPENAI_CUSTOM_REASONING_PARAM"] = customReasoningParam,
+            ["OPENAI_COMPLETE_URL"] = (selectedProvider?.CompleteUrl ?? false) ? "1" : "0",
             ["GITHUB_TOKEN"] = settings.GithubToken,
             ["GITHUB_TOP_N"] = Math.Clamp(settings.TrendingTopN, 1, 20).ToString(CultureInfo.InvariantCulture),
             ["LEADERBOARD_SOURCE"] = AppSettings.NormalizeLeaderboardSource(settings.LeaderboardSource),

@@ -81,7 +81,7 @@ public sealed class MainForm : Form
         Shown += async (_, _) => await RefreshAllAsync();
         _tabs.SelectedIndexChanged += (_, _) =>
         {
-            if (_tabs.SelectedIndex == 2) StartVoicePreviewWarmup();
+            if (_tabs.SelectedIndex == 3) StartVoicePreviewWarmup();
         };
     }
 
@@ -102,8 +102,9 @@ public sealed class MainForm : Form
         var nav = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false };
         nav.Controls.Add(NavButton("视频制作", 0));
         nav.Controls.Add(NavButton("环境与下载", 1));
-        nav.Controls.Add(NavButton("设置", 2));
-        nav.Controls.Add(NavButton("运行日志", 3));
+        nav.Controls.Add(NavButton("供应商", 2));
+        nav.Controls.Add(NavButton("设置", 3));
+        nav.Controls.Add(NavButton("运行日志", 4));
         nav.Controls.Add(new Label { Height = 18, Width = 140 });
         var version = new Label { Text = "桌面版 0.2\n复用 Node.js 流程", ForeColor = Color.FromArgb(148, 163, 184), AutoSize = true, Margin = new Padding(10, 10, 0, 0) };
         nav.Controls.Add(version); navigation.Controls.Add(nav);
@@ -112,11 +113,13 @@ public sealed class MainForm : Form
         runTab.Controls.Add(BuildRunPage());
         var environmentTab = new TabPage { Text = "环境与下载", Padding = new Padding(0) };
         environmentTab.Controls.Add(BuildEnvironmentPage());
+        var providersTab = new TabPage { Text = "供应商", Padding = new Padding(0) };
+        providersTab.Controls.Add(BuildProvidersPage());
         var settingsTab = new TabPage { Text = "设置", Padding = new Padding(0) };
         settingsTab.Controls.Add(BuildSettingsPage());
         var logTab = new TabPage { Text = "运行日志", Padding = new Padding(12) };
         logTab.Controls.Add(BuildLogPage());
-        _tabs.TabPages.AddRange([runTab, environmentTab, settingsTab, logTab]);
+        _tabs.TabPages.AddRange([runTab, environmentTab, providersTab, settingsTab, logTab]);
         _tabs.Appearance = TabAppearance.FlatButtons; _tabs.ItemSize = new Size(0, 1); _tabs.SizeMode = TabSizeMode.Fixed;
 
         Controls.Add(_tabs); Controls.Add(navigation); Controls.Add(header);
@@ -207,19 +210,146 @@ public sealed class MainForm : Form
         foreach (var card in _environmentCards.Values) card.Width = width;
     }
 
+    private Control BuildProvidersPage()
+    {
+        var root = new Panel { Dock = DockStyle.Fill, Padding = new Padding(18, 16, 18, 12) };
+        var top = new Panel { Dock = DockStyle.Top, Height = 94, BackColor = Color.White, Padding = new Padding(18, 14, 18, 12) };
+        var title = new Label { Text = "供应商管理", Font = new Font("Microsoft YaHei UI", 13, FontStyle.Bold), AutoSize = true, Location = new Point(18, 12) };
+        var subtitle = new Label { Text = "配置模型供应商的服务地址、默认模型和 API Key", AutoSize = true, ForeColor = Color.FromArgb(71, 85, 105), Location = new Point(18, 47) };
+        var addButton = Button("新增供应商", Color.FromArgb(37, 99, 235), 110, 32);
+        addButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        addButton.Location = new Point(top.ClientSize.Width - top.Padding.Right - addButton.Width, 22);
+        addButton.Click += (_, _) => AddProvider();
+        top.Resize += (_, _) => addButton.Location = new Point(Math.Max(top.Padding.Left, top.ClientSize.Width - top.Padding.Right - addButton.Width), 22);
+        top.Controls.AddRange([title, subtitle, addButton]);
+
+        var tablePanel = new Panel { Dock = DockStyle.Fill, Padding = new Padding(0), AutoScroll = true };
+        var dataGrid = new DataGridView
+        {
+            Dock = DockStyle.Fill,
+            AllowUserToAddRows = false,
+            AllowUserToDeleteRows = false,
+            AllowUserToResizeRows = false,
+            ReadOnly = true,
+            SelectionMode = DataGridViewSelectionMode.FullRowSelect,
+            MultiSelect = false,
+            AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
+            RowHeadersVisible = false,
+            BackgroundColor = Color.White,
+            BorderStyle = BorderStyle.None,
+            ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing,
+            ColumnHeadersHeight = 36,
+            RowTemplate = { Height = 40 }
+        };
+
+        dataGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Name", HeaderText = "名称", FillWeight = 25 });
+        dataGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "BaseUrl", HeaderText = "Base URL", FillWeight = 35 });
+        dataGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Model", HeaderText = "默认模型", FillWeight = 25 });
+
+        var editColumn = new DataGridViewButtonColumn { Name = "Edit", HeaderText = "操作", Text = "编辑", UseColumnTextForButtonValue = true, FillWeight = 8 };
+        var deleteColumn = new DataGridViewButtonColumn { Name = "Delete", HeaderText = "", Text = "删除", UseColumnTextForButtonValue = true, FillWeight = 7 };
+        dataGrid.Columns.Add(editColumn);
+        dataGrid.Columns.Add(deleteColumn);
+
+        dataGrid.CellContentClick += (_, e) =>
+        {
+            if (e.RowIndex < 0) return;
+            var providerId = dataGrid.Rows[e.RowIndex].Tag as string;
+            if (providerId == null) return;
+
+            if (e.ColumnIndex == dataGrid.Columns["Edit"]!.Index) EditProvider(providerId, dataGrid);
+            else if (e.ColumnIndex == dataGrid.Columns["Delete"]!.Index) DeleteProvider(providerId, dataGrid);
+        };
+
+        RefreshProvidersGrid(dataGrid);
+        tablePanel.Controls.Add(dataGrid);
+        root.Controls.Add(tablePanel);
+        root.Controls.Add(top);
+        return root;
+    }
+
+    private void RefreshProvidersGrid(DataGridView grid)
+    {
+        grid.Rows.Clear();
+        foreach (var provider in _settings.ModelProviders)
+        {
+            var row = grid.Rows[grid.Rows.Add(provider.Name, provider.BaseUrl, provider.DefaultModel, "编辑", "删除")];
+            row.Tag = provider.Id;
+        }
+    }
+
+    private void AddProvider()
+    {
+        using var editor = new ProviderEditorForm();
+        if (editor.ShowDialog() != DialogResult.OK) return;
+        var provider = editor.GetProvider();
+        _settings.ModelProviders.Add(provider);
+        if (string.IsNullOrEmpty(_settings.SelectedProviderId)) _settings.SelectedProviderId = provider.Id;
+        _settingsStore.Save(_settings);
+        if (_tabs.TabPages[2].Controls[0] is Panel panel && panel.Controls[0] is Panel tablePanel && tablePanel.Controls[0] is DataGridView grid)
+            RefreshProvidersGrid(grid);
+        MessageBox.Show("供应商已添加。", "成功", MessageBoxButtons.OK, MessageBoxIcon.Information);
+    }
+
+    private void EditProvider(string providerId, DataGridView grid)
+    {
+        var provider = _settings.ModelProviders.FirstOrDefault(p => p.Id == providerId);
+        if (provider == null) return;
+        using var editor = new ProviderEditorForm(provider);
+        if (editor.ShowDialog() != DialogResult.OK) return;
+        _settingsStore.Save(_settings);
+        RefreshProvidersGrid(grid);
+        MessageBox.Show("供应商已更新。", "成功", MessageBoxButtons.OK, MessageBoxIcon.Information);
+    }
+
+    private void DeleteProvider(string providerId, DataGridView grid)
+    {
+        if (_settings.ModelProviders.Count <= 1)
+        {
+            MessageBox.Show("至少需要保留一个供应商。", "无法删除", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+        var provider = _settings.ModelProviders.FirstOrDefault(p => p.Id == providerId);
+        if (provider == null) return;
+        var result = MessageBox.Show($"确定要删除供应商"{provider.Name}"吗？", "确认删除", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+        if (result != DialogResult.Yes) return;
+        _settings.ModelProviders.Remove(provider);
+        if (_settings.SelectedProviderId == providerId) _settings.SelectedProviderId = _settings.ModelProviders.FirstOrDefault()?.Id ?? "";
+        _settingsStore.Save(_settings);
+        RefreshProvidersGrid(grid);
+        MessageBox.Show("供应商已删除。", "成功", MessageBoxButtons.OK, MessageBoxIcon.Information);
+    }
+
     private Control BuildSettingsPage()
     {
         var root = new Panel { Dock = DockStyle.Fill, Padding = new Padding(26, 22, 26, 22) };
         var scroll = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
         var table = new TableLayoutPanel { ColumnCount = 3, RowCount = 1, Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(0), ColumnStyles = { new ColumnStyle(SizeType.Absolute, 190), new ColumnStyle(SizeType.Percent, 100), new ColumnStyle(SizeType.Absolute, 220) } };
-        var note = new Label { Text = "密钥会使用 Windows 当前用户 DPAPI 加密后保存到本机；项目流程只在运行时传给子进程。", AutoSize = true, ForeColor = Color.FromArgb(71, 85, 105), Margin = new Padding(0, 0, 0, 16) };
+        var note = new Label { Text = "供应商配置在"供应商"页面单独维护；密钥使用 Windows 当前用户 DPAPI 加密保存。", AutoSize = true, ForeColor = Color.FromArgb(71, 85, 105), Margin = new Padding(0, 0, 0, 16) };
         table.Controls.Add(note, 0, 0); table.SetColumnSpan(note, 3);
+
         AddSetting(table, "项目目录", "project", _settings.ProjectDirectory, "选择包含 package.json 的项目目录", browse: true);
         AddSetting(table, "视频输出目录", "output", _settings.OutputDirectory, "留空则使用项目目录下的 output", browse: true);
-        AddSetting(table, "模型服务地址", "baseUrl", _settings.OpenAiBaseUrl, "OpenAI 兼容接口，例如 https://api.buzzai.cc/v1");
-        AddSetting(table, "模型名称", "model", _settings.OpenAiModel, "生成讲稿使用的模型名");
+
+        var providerLabel = new Label { Text = "模型供应商", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(0, 12, 12, 12) };
+        var providerBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 300, Margin = new Padding(0, 8, 12, 8) };
+        foreach (var provider in _settings.ModelProviders) providerBox.Items.Add(provider.Name);
+        var selectedProvider = _settings.GetSelectedProvider();
+        if (selectedProvider != null) providerBox.SelectedItem = selectedProvider.Name;
+        else if (providerBox.Items.Count > 0) providerBox.SelectedIndex = 0;
+        providerBox.SelectedIndexChanged += (_, _) =>
+        {
+            if (providerBox.SelectedIndex >= 0 && providerBox.SelectedIndex < _settings.ModelProviders.Count)
+                _settings.SelectedProviderId = _settings.ModelProviders[providerBox.SelectedIndex].Id;
+        };
+        var providerHelp = new Label { Text = "在"供应商"页面管理", AutoSize = true, ForeColor = Color.FromArgb(100, 116, 139), Margin = new Padding(0, 12, 0, 12), MaximumSize = new Size(220, 0) };
+        table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        table.Controls.Add(providerLabel, 0, table.RowCount);
+        table.Controls.Add(providerBox, 1, table.RowCount);
+        table.Controls.Add(providerHelp, 2, table.RowCount);
+        table.RowCount++;
+
         AddReasoningEffortSetting(table);
-        AddSetting(table, "模型 API Key", "apiKey", _settings.OpenAiApiKey, "必填；保存时加密", password: true);
         AddSetting(table, "GitHub Token", "githubToken", _settings.GithubToken, "可选，用于降低公开 API 限流", password: true);
         AddSetting(table, "Kokoro 模型", "kokoroModel", _settings.KokoroModel, "默认 hexgrad/Kokoro-82M-v1.1-zh");
         AddVoiceSetting(table);
@@ -232,8 +362,7 @@ public sealed class MainForm : Form
         table.RowStyles.Add(new RowStyle(SizeType.AutoSize)); table.Controls.Add(speedLabel, 0, table.RowCount); table.Controls.Add(_speedBox, 1, table.RowCount); table.RowCount++;
         var buttons = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight, Margin = new Padding(0, 18, 0, 0) };
         var save = Button("保存设置", Color.FromArgb(37, 99, 235), 110, 34); save.Click += (_, _) => SaveSettingsFromUi();
-        var test = Button("测试模型连接", Color.FromArgb(71, 85, 105), 130, 34); test.Click += async (_, _) => await TestModelAsync();
-        buttons.Controls.Add(save); buttons.Controls.Add(test); table.RowStyles.Add(new RowStyle(SizeType.AutoSize)); table.Controls.Add(buttons, 0, table.RowCount); table.SetColumnSpan(buttons, 3); table.RowCount++;
+        buttons.Controls.Add(save); table.RowStyles.Add(new RowStyle(SizeType.AutoSize)); table.Controls.Add(buttons, 0, table.RowCount); table.SetColumnSpan(buttons, 3); table.RowCount++;
         scroll.Controls.Add(table); root.Controls.Add(scroll); return root;
     }
 
