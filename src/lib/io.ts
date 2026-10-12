@@ -12,5 +12,21 @@ export async function readJson<T>(filePath: string): Promise<T> {
 
 export function safeJson(text: string): unknown {
   const trimmed = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
-  return JSON.parse(trimmed);
+  try {
+    return JSON.parse(trimmed);
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      // Extract context around the error position for debugging
+      const match = error.message.match(/position (\d+)/);
+      if (match) {
+        const position = parseInt(match[1]!, 10);
+        const start = Math.max(0, position - 100);
+        const end = Math.min(trimmed.length, position + 100);
+        const context = trimmed.slice(start, end);
+        const pointer = " ".repeat(Math.min(100, position - start)) + "^";
+        throw new SyntaxError(`${error.message}\n\n上下文:\n${context}\n${pointer}`);
+      }
+    }
+    throw error;
+  }
 }
