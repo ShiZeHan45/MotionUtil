@@ -311,7 +311,7 @@ public sealed class MainForm : Form
         }
         var provider = _settings.ModelProviders.FirstOrDefault(p => p.Id == providerId);
         if (provider == null) return;
-        var result = MessageBox.Show($"确定要删除供应商"{provider.Name}"吗？", "确认删除", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+        var result = MessageBox.Show($"确定要删除供应商 \"{provider.Name}\" 吗？", "确认删除", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
         if (result != DialogResult.Yes) return;
         _settings.ModelProviders.Remove(provider);
         if (_settings.SelectedProviderId == providerId) _settings.SelectedProviderId = _settings.ModelProviders.FirstOrDefault()?.Id ?? "";
@@ -325,7 +325,7 @@ public sealed class MainForm : Form
         var root = new Panel { Dock = DockStyle.Fill, Padding = new Padding(26, 22, 26, 22) };
         var scroll = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
         var table = new TableLayoutPanel { ColumnCount = 3, RowCount = 1, Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(0), ColumnStyles = { new ColumnStyle(SizeType.Absolute, 190), new ColumnStyle(SizeType.Percent, 100), new ColumnStyle(SizeType.Absolute, 220) } };
-        var note = new Label { Text = "供应商配置在"供应商"页面单独维护；密钥使用 Windows 当前用户 DPAPI 加密保存。", AutoSize = true, ForeColor = Color.FromArgb(71, 85, 105), Margin = new Padding(0, 0, 0, 16) };
+        var note = new Label { Text = "供应商配置在 \"供应商\" 页面单独维护；密钥使用 Windows 当前用户 DPAPI 加密保存。", AutoSize = true, ForeColor = Color.FromArgb(71, 85, 105), Margin = new Padding(0, 0, 0, 16) };
         table.Controls.Add(note, 0, 0); table.SetColumnSpan(note, 3);
 
         AddSetting(table, "项目目录", "project", _settings.ProjectDirectory, "选择包含 package.json 的项目目录", browse: true);
@@ -342,7 +342,7 @@ public sealed class MainForm : Form
             if (providerBox.SelectedIndex >= 0 && providerBox.SelectedIndex < _settings.ModelProviders.Count)
                 _settings.SelectedProviderId = _settings.ModelProviders[providerBox.SelectedIndex].Id;
         };
-        var providerHelp = new Label { Text = "在"供应商"页面管理", AutoSize = true, ForeColor = Color.FromArgb(100, 116, 139), Margin = new Padding(0, 12, 0, 12), MaximumSize = new Size(220, 0) };
+        var providerHelp = new Label { Text = "在 \"供应商\" 页面管理", AutoSize = true, ForeColor = Color.FromArgb(100, 116, 139), Margin = new Padding(0, 12, 0, 12), MaximumSize = new Size(220, 0) };
         table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         table.Controls.Add(providerLabel, 0, table.RowCount);
         table.Controls.Add(providerBox, 1, table.RowCount);
@@ -850,8 +850,9 @@ public sealed class MainForm : Form
         _tabs.SelectedIndex = 0;
         SaveSettingsFromUi(false);
         var project = _paths.ResolveProjectDirectory(_settings);
-        if (string.IsNullOrWhiteSpace(project)) { MessageBox.Show("请先在设置中选择包含 package.json 的项目目录。", "缺少项目目录", MessageBoxButtons.OK, MessageBoxIcon.Warning); _tabs.SelectedIndex = 2; return; }
-        if (string.IsNullOrWhiteSpace(_settings.OpenAiModel) || string.IsNullOrWhiteSpace(_settings.OpenAiApiKey)) { MessageBox.Show("节点 3 需要模型服务地址、模型名称和 API Key。请先完成设置。", "缺少讲稿模型设置", MessageBoxButtons.OK, MessageBoxIcon.Warning); _tabs.SelectedIndex = 2; return; }
+        if (string.IsNullOrWhiteSpace(project)) { MessageBox.Show("请先在设置中选择包含 package.json 的项目目录。", "缺少项目目录", MessageBoxButtons.OK, MessageBoxIcon.Warning); _tabs.SelectedIndex = 3; return; }
+        var provider = _settings.GetSelectedProvider();
+        if (provider == null || string.IsNullOrWhiteSpace(provider.DefaultModel) || string.IsNullOrWhiteSpace(provider.ApiKey)) { MessageBox.Show("节点 3 需要配置供应商。请先在供应商页面添加并选择一个供应商。", "缺少讲稿模型设置", MessageBoxButtons.OK, MessageBoxIcon.Warning); _tabs.SelectedIndex = 2; return; }
         BeginProgressTracking(startIndex);
         _busy = true; _runCancellation = new CancellationTokenSource(); _etaTimer.Start(); SetRunButtonsEnabled(false); AppendLog($"开始从节点 {startIndex + 1} 运行，项目目录：{project}");
         try
@@ -1118,10 +1119,11 @@ public sealed class MainForm : Form
     private async Task TestModelAsync()
     {
         SaveSettingsFromUi(false);
-        if (string.IsNullOrWhiteSpace(_settings.OpenAiApiKey) || string.IsNullOrWhiteSpace(_settings.OpenAiModel)) { MessageBox.Show("请先填写模型名称和 API Key。", "设置不完整", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+        var provider = _settings.GetSelectedProvider();
+        if (provider == null || string.IsNullOrWhiteSpace(provider.ApiKey) || string.IsNullOrWhiteSpace(provider.DefaultModel)) { MessageBox.Show("请先在供应商页面配置供应商。", "设置不完整", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
         try
         {
-            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(30) }; using var request = new HttpRequestMessage(HttpMethod.Get, _settings.OpenAiBaseUrl.TrimEnd('/') + "/models"); request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _settings.OpenAiApiKey); using var response = await client.SendAsync(request); var body = await response.Content.ReadAsStringAsync(); if (!response.IsSuccessStatusCode) throw new InvalidOperationException($"HTTP {(int)response.StatusCode}: {body[..Math.Min(500, body.Length)]}"); MessageBox.Show("模型服务连接成功。", "连接测试", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(30) }; using var request = new HttpRequestMessage(HttpMethod.Get, provider.BaseUrl.TrimEnd('/') + "/models"); request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", provider.ApiKey); using var response = await client.SendAsync(request); var body = await response.Content.ReadAsStringAsync(); if (!response.IsSuccessStatusCode) throw new InvalidOperationException($"HTTP {(int)response.StatusCode}: {body[..Math.Min(500, body.Length)]}"); MessageBox.Show("模型服务连接成功。", "连接测试", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
         catch (Exception error) { MessageBox.Show(error.Message, "连接测试失败", MessageBoxButtons.OK, MessageBoxIcon.Error); }
     }
@@ -1130,12 +1132,7 @@ public sealed class MainForm : Form
     {
         _settings.ProjectDirectory = _settingBoxes.GetValueOrDefault("project")?.Text.Trim() ?? _settings.ProjectDirectory;
         _settings.OutputDirectory = _settingBoxes.GetValueOrDefault("output")?.Text.Trim() ?? _settings.OutputDirectory;
-        _settings.OpenAiBaseUrl = _settingBoxes.GetValueOrDefault("baseUrl")?.Text.Trim() ?? _settings.OpenAiBaseUrl;
-        _settings.OpenAiModel = _settingBoxes.GetValueOrDefault("model")?.Text.Trim() ?? _settings.OpenAiModel;
         _settings.OpenAiReasoningEffort = _reasoningBox.SelectedItem?.ToString() switch { "低" => "low", "中" => "medium", "高" => "high", "极高" => "xhigh", _ => "" };
-        _settings.OpenAiApiKey = _settingBoxes.GetValueOrDefault("apiKey")?.Text ?? _settings.OpenAiApiKey;
-        _settings.OpenAiBaseUrl = AppSettings.ResolveModelBaseUrl(_settings.OpenAiBaseUrl, _settings.OpenAiApiKey);
-        if (_settingBoxes.TryGetValue("baseUrl", out var baseUrlBox)) baseUrlBox.Text = _settings.OpenAiBaseUrl;
         _settings.GithubToken = _settingBoxes.GetValueOrDefault("githubToken")?.Text ?? _settings.GithubToken;
         _settings.TrendingTopN = (int)_topNBox.Value;
         _settings.LeaderboardSource = _starHistorySource.Checked ? "star-history" : "github-trending";
