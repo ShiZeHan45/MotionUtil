@@ -3,6 +3,9 @@ import { Composition } from "remotion";
 import type { RenderProject, TrendingRepo } from "../types";
 import { durationInFrames, FPS, ProjectVideo, type VideoProps } from "./ProjectVideo";
 import { defaultOpenRigStoryProps, OpenRigStory } from "./OpenRigStory";
+import { MetaphorGallery } from "./metaphor/MetaphorGallery";
+import { MetaphorSceneDemo } from "./metaphor/MetaphorStage";
+import { METAPHOR_SCENES } from "./metaphor/scenes";
 
 const sampleProject: RenderProject = {
   repo: "open-source/demo-project",
@@ -61,4 +64,19 @@ export const RemotionRoot: React.FC = () => <><Composition
   durationInFrames={durationInFrames(defaultOpenRigStoryProps.project)}
   defaultProps={defaultOpenRigStoryProps}
   calculateMetadata={({ props }) => ({ durationInFrames: durationInFrames(props.project) })}
+/><Composition
+  id="MetaphorGallery"
+  component={MetaphorGallery}
+  width={1080}
+  height={1920}
+  fps={FPS}
+  durationInFrames={1}
+/><Composition
+  id="MetaphorSceneDemo"
+  component={MetaphorSceneDemo}
+  width={1080}
+  height={1920}
+  fps={FPS}
+  durationInFrames={FPS * 12}
+  defaultProps={{ sceneId: "translator", scenes: METAPHOR_SCENES }}
 /></>;
