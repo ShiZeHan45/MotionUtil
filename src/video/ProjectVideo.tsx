@@ -672,10 +672,11 @@ export function ChapterProgress({ project }: { project: RenderProject }) {
   const position = Math.max(0, Math.min(totalFrames, frame));
   const groups = [
     { label: "开场", scenes: ["intro"] },
-    { label: "讲解", scenes: ["problem", "concept"] },
+    { label: "原理", scenes: ["problem", "concept"] },
     { label: "案例", scenes: ["case", "dashboard"] },
-    { label: "操作", scenes: ["setup", "workflow"] },
-    { label: "条件与总结", scenes: ["requirements", "summary"] },
+    // Older nine-scene runs keep their operation chapters, which sit before the summary.
+    ...(project.narrationSegments.some((segment) => ["setup", "workflow", "requirements"].includes(segment.scene)) ? [{ label: "操作", scenes: ["setup", "workflow", "requirements"] }] : []),
+    { label: "总结", scenes: ["summary"] },
   ];
   const groupFrames = groups.map((group) => project.narrationSegments
     .filter((segment) => group.scenes.includes(segment.scene))

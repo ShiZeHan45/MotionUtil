@@ -4,8 +4,8 @@ import type { NarrationSegment, ProjectScript, RenderProject } from "../types";
 import { config } from "./config";
 import { readJson, writeJson } from "./io";
 
-export const TARGET_VIDEO_DURATION_MS = 180_000;
-export const MAX_VIDEO_DURATION_MS = 200_000;
+export const TARGET_VIDEO_DURATION_MS = 140_000;
+export const MAX_VIDEO_DURATION_MS = 180_000;
 const ESTIMATE_MARGIN = 1.05;
 const DEFAULT_CHARACTERS_PER_SECOND = 5.2;
 
