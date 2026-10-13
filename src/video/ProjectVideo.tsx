@@ -1,10 +1,11 @@
 import React from "react";
-import { AbsoluteFill, Audio, Img, Loop, OffthreadVideo, Sequence, Video, cancelRender, continueRender, delayRender, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
-import type { ConceptBeat, ConceptConnector, ConceptObject, ConceptStoryboard, LeaderboardContext, OperationCue, RenderProject, TrendingRepo } from "../types";
+import { AbsoluteFill, Audio, Easing, Img, Loop, OffthreadVideo, Sequence, Video, cancelRender, continueRender, delayRender, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
+import type { ConceptBeat, ConceptConnector, ConceptObject, ConceptStoryboard, LeaderboardContext, OpeningCue, OperationCue, RenderProject, TrendingRepo } from "../types";
 import { leaderboardPresentation } from "../lib/leaderboard";
 import { isExcludedEvidenceAsset } from "../lib/visual-assets";
 import { selectedOpeningHook } from "../lib/opening-hook";
 import { activeOperationCue, OPERATION_STEP_LABELS } from "../lib/operation-timing";
+import { openingTiming } from "../lib/opening-timing";
 import { LayoutGuard, TextBlock, textLayout, textProgress, VIDEO_FONT, type TextLayout } from "./text-layout";
 import { connectorId, layoutConceptGraph, type ConceptGraphLayout, type GraphEdge, type GraphNode } from "./concept-layout";
 
@@ -226,44 +227,66 @@ function SceneDiagram({ project, scene, top, durationFrames, operationPage, acti
   </div>;
 }
 
-function RankCard({ repo, selected, scanning, index, durationFrames, context }: { repo: TrendingRepo; selected: boolean; scanning: boolean; index: number; durationFrames: number; context?: LeaderboardContext }) {
+const GRID_COLUMNS = 2;
+const GRID_CARD_WIDTH = 468;
+const GRID_CARD_HEIGHT = 190;
+const GRID_GAP_X = 24;
+const GRID_GAP_Y = 20;
+const OPENING_TILT_DEG = 26;
+const OPENING_YAW_DEG = 4;
+
+function RankCard({ repo, emphasis, index, durationFrames, context }: { repo: TrendingRepo; emphasis: number; index: number; durationFrames: number; context?: LeaderboardContext }) {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
+  const selected = emphasis >= 0.5;
   const entrance = spring({ frame: frame - index * 3, fps, config: { damping: 18, mass: 0.7 } });
-  const lift = selected ? interpolate(frame, [fps * 0.7, fps * 1.8], [0, -3], { extrapolateRight: "clamp" }) : 0;
   const formatStars = (stars: number | null) => stars === null ? "—" : new Intl.NumberFormat("en-US").format(stars);
-  const nameLayout = textLayout(repo.fullName, 380, 82, 32, 28, 850);
-  const descriptionLayout = textLayout(repo.description || leaderboardPresentation(context).name, 380, 62, 23, 22, 650);
-  return <div data-text-region={`榜单 ${repo.rank}`} style={{ transform: `translateY(${(1 - entrance) * 48 + lift}px) scale(${selected || scanning ? 1.01 : 1})`, opacity: entrance * (selected || scanning || frame < fps * 1.2 ? 1 : 0.55), width: 800, height: 190, marginBottom: 14, padding: "15px 24px", boxSizing: "border-box", display: "flex", alignItems: "center", gap: 16, border: `4px solid ${selected ? palette.teal : scanning ? palette.coral : palette.ink}`, borderRadius: 26, background: selected ? "#fffef9" : scanning ? "#fff8eb" : "rgba(255,255,255,.75)", boxShadow: selected ? "0 8px 0 rgba(22,140,134,.16)" : "0 7px 0 rgba(20,52,74,.08)" }}>
-    <div style={{ flex: "0 0 auto", width: 64, height: 64, borderRadius: "50%", display: "grid", placeItems: "center", color: "white", background: selected ? palette.coral : scanning ? palette.teal : palette.ink, fontSize: repo.rank >= 10 ? 27 : 34, fontWeight: 900 }}>#{repo.rank}</div>
-      <div style={{ minWidth: 0, flex: 1 }}>
+  const nameLayout = textLayout(repo.fullName, 368, 66, 30, 24, 850);
+  const descriptionLayout = textLayout(repo.description || leaderboardPresentation(context).name, 432, 54, 21, 19, 650);
+  return <div data-text-region={`榜单 ${repo.rank}`} style={{ transform: `translateY(${(1 - entrance) * 48}px)`, opacity: entrance, width: GRID_CARD_WIDTH, height: GRID_CARD_HEIGHT, padding: "10px 14px", boxSizing: "border-box", display: "flex", flexDirection: "column", border: `4px solid ${selected ? palette.teal : palette.ink}`, borderRadius: 26, background: selected ? "#fffef9" : "rgba(255,255,255,.82)", boxShadow: selected ? `0 0 0 8px rgba(22,140,134,${0.16 * emphasis}), 0 18px 44px rgba(22,140,134,${0.32 * emphasis})` : "0 7px 0 rgba(20,52,74,.08)" }}>
+    <div style={{ height: 66, display: "flex", alignItems: "center", gap: 12 }}>
+      <div style={{ flex: "0 0 auto", width: 52, height: 52, borderRadius: "50%", display: "grid", placeItems: "center", color: "white", background: selected ? palette.coral : palette.ink, fontSize: repo.rank >= 10 ? 22 : 28, fontWeight: 900 }}>#{repo.rank}</div>
       <TextBlock layout={nameLayout} name={`榜单仓库名 ${repo.rank}`} progress={textProgress(frame, durationFrames)} style={{ fontWeight: 850, color: palette.ink }} />
-      <TextBlock layout={descriptionLayout} name={`榜单说明 ${repo.rank}`} progress={textProgress(frame, durationFrames)} style={{ marginTop: 7, color: palette.muted }} />
     </div>
-    <div style={{ flex: "0 0 180px", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8, textAlign: "right" }}>
-      <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 5, fontSize: 24, lineHeight: 1.15, fontWeight: 950, color: palette.ink }}>
-        <span style={{ color: palette.yellow, fontSize: 28 }}>★</span>{formatStars(repo.totalStars)}
-      </div>
-      {repo.starsThisWeek !== null && <div style={{ color: palette.teal, fontSize: 17, lineHeight: 1.1, fontWeight: 850 }}>↗ {formatStars(repo.starsThisWeek)}<br />{leaderboardPresentation(context).metricLabel}</div>}
-      {selected && <div style={{ color: palette.teal, fontSize: 20, fontWeight: 900 }}>本期介绍</div>}
+    <TextBlock layout={descriptionLayout} name={`榜单说明 ${repo.rank}`} progress={textProgress(frame, durationFrames)} style={{ marginTop: 6, color: palette.muted, fontWeight: 650 }} />
+    <div style={{ marginTop: "auto", height: 28, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, whiteSpace: "nowrap" }}>
+      <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 24, fontWeight: 950, color: palette.ink }}><span style={{ color: palette.yellow, fontSize: 26 }}>★</span>{formatStars(repo.totalStars)}</span>
+      {repo.starsThisWeek !== null && <span style={{ color: palette.teal, fontSize: 17, fontWeight: 850 }}>↗ {formatStars(repo.starsThisWeek)} {leaderboardPresentation(context).metricLabel}</span>}
+      {selected && <span style={{ color: palette.teal, fontSize: 20, fontWeight: 900 }}>本期介绍</span>}
     </div>
   </div>;
 }
 
-function LeaderboardScene({ project, leaderboard, caption, durationFrames, context }: { project: RenderProject; leaderboard: TrendingRepo[]; caption: string; durationFrames: number; context?: LeaderboardContext }) {
+function LeaderboardScene({ project, leaderboard, caption, durationFrames, context, openingCues }: { project: RenderProject; leaderboard: TrendingRepo[]; caption: string; durationFrames: number; context?: LeaderboardContext; openingCues?: OpeningCue[] }) {
   const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
-  const pulse = 1 + Math.sin(frame / 8) * 0.025;
+  const { fps, width } = useVideoConfig();
   const presentation = leaderboardPresentation(context);
   const hook = selectedOpeningHook(project.openingHook);
-  // Keep each rank readable: page a longer list and finish on the featured project.
-  const pages = Math.max(1, Math.ceil(leaderboard.length / 5));
-  const selectedPage = Math.max(0, Math.floor(leaderboard.findIndex((repo) => repo.rank === project.rank) / 5));
-  const pageDuration = Math.max(fps, Math.floor(durationFrames * 0.6 / pages));
-  const page = frame < durationFrames * 0.6 ? Math.min(pages - 1, Math.floor(frame / pageDuration)) : selectedPage;
-  const visibleRepos = leaderboard.slice(page * 5, (page + 1) * 5);
-  const locked = frame >= fps * 1.5;
-  const scanRank = visibleRepos[Math.min(visibleRepos.length - 1, Math.floor((frame % pageDuration) / Math.max(1, fps * 0.24)))]?.rank;
+  // Tilted overview while the hook is spoken; the camera flattens and pushes onto the featured card when the ranking sentence starts.
+  const rowPitch = GRID_CARD_HEIGHT + GRID_GAP_Y;
+  const viewportHeight = 1000;
+  const gridWidth = GRID_COLUMNS * GRID_CARD_WIDTH + (GRID_COLUMNS - 1) * GRID_GAP_X;
+  const rows = Math.ceil(leaderboard.length / GRID_COLUMNS);
+  const selectedIndex = Math.max(0, leaderboard.findIndex((repo) => repo.rank === project.rank));
+  const selectedRow = Math.floor(selectedIndex / GRID_COLUMNS);
+  const selectedColumn = selectedIndex % GRID_COLUMNS;
+  const centerTop = (viewportHeight - GRID_CARD_HEIGHT) / 2;
+  const maxScroll = Math.max(0, rows * rowPitch - GRID_GAP_Y - viewportHeight);
+  const targetScroll = Math.min(maxScroll, Math.max(0, selectedRow * rowPitch - centerTop));
+  const timing = openingTiming(openingCues);
+  const settle = Math.round(fps * 0.5);
+  const focusStart = Math.max(timing.hasHook ? 0 : settle, Math.min(Math.round(timing.hookEndMs * fps / 1000), durationFrames - fps * 2));
+  const focusEnd = Math.max(focusStart + 1, Math.min(durationFrames - 1, focusStart + Math.round(fps * 2.2)));
+  const scrollStart = Math.round(fps * 0.4);
+  const scrollEnd = Math.max(scrollStart + 1, focusStart);
+  const scrollOffset = interpolate(frame, [scrollStart, scrollEnd], [0, targetScroll], { easing: Easing.inOut(Easing.cubic), extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+  const push = interpolate(frame, [focusStart, focusEnd], [0, 1], { easing: Easing.inOut(Easing.cubic), extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+  const drift = interpolate(frame, [0, Math.max(1, focusStart)], [-1, 1], { extrapolateRight: "clamp" });
+  const tilt = OPENING_TILT_DEG * (1 - push);
+  const yaw = (OPENING_YAW_DEG + drift * 0.8) * (1 - push);
+  const selectedCenterX = (width - gridWidth) / 2 + selectedColumn * (GRID_CARD_WIDTH + GRID_GAP_X) + GRID_CARD_WIDTH / 2;
+  const shiftX = (width / 2 - selectedCenterX) * push;
+  const shiftY = (centerTop - (selectedRow * rowPitch - scrollOffset)) * push;
   const selected = leaderboard.find((repo) => repo.rank === project.rank) ?? { rank: project.rank, fullName: project.repo, description: project.oneLineSummary, owner: project.repo.split("/")[0] ?? "", name: project.repo.split("/")[1] ?? "", url: "", language: null, totalStars: null, starsThisWeek: null };
   return <AbsoluteFill style={{ color: palette.ink }}>
     <div style={{ position: "absolute", top: 180, left: 0, right: 0, textAlign: "center" }}>
@@ -273,8 +296,17 @@ function LeaderboardScene({ project, leaderboard, caption, durationFrames, conte
         : <div style={{ marginTop: 22, fontSize: 66, fontWeight: 950 }}>{presentation.title}</div>}
       <div style={{ marginTop: 10, fontSize: 26, color: palette.muted }}>{presentation.dateLabel || "关注值得了解的开源项目"}</div>
     </div>
-    <div style={{ position: "absolute", top: 480, left: 140, right: 140, display: "flex", flexDirection: "column", alignItems: "center", transform: `scale(${pulse})`, transformOrigin: "center top" }}>
-      {visibleRepos.map((repo, index) => <RankCard key={repo.fullName} repo={repo} selected={locked && repo.rank === project.rank} scanning={!locked && repo.rank === scanRank} index={index} durationFrames={durationFrames} context={context} />)}
+    <div style={{ position: "absolute", top: 470, left: 0, right: 0, height: viewportHeight, overflow: "hidden", perspective: 1500, perspectiveOrigin: "50% 30%", WebkitMaskImage: "linear-gradient(to bottom, transparent 0, black 30px, black calc(100% - 30px), transparent 100%)", maskImage: "linear-gradient(to bottom, transparent 0, black 30px, black calc(100% - 30px), transparent 100%)" }}>
+      <div style={{ position: "absolute", inset: 0, transformStyle: "preserve-3d", transformOrigin: "50% 50%", transform: `scale(${0.88 + push * 0.12}) rotateX(${tilt}deg) rotateZ(${yaw}deg) translate(${shiftX}px, ${shiftY}px)` }}>
+        <div style={{ display: "grid", gridTemplateColumns: `repeat(${GRID_COLUMNS}, ${GRID_CARD_WIDTH}px)`, gap: `${GRID_GAP_Y}px ${GRID_GAP_X}px`, justifyContent: "center", transformStyle: "preserve-3d", transform: `translateY(${-scrollOffset}px)` }}>
+          {leaderboard.map((repo, index) => {
+            const isTarget = repo.rank === project.rank;
+            return <div key={repo.fullName} style={{ transformStyle: "preserve-3d", zIndex: isTarget ? 2 : 1, transform: isTarget ? `translateZ(${push * 90}px) scale(${1 + push * 0.2})` : undefined, opacity: isTarget ? 1 : 1 - push * 0.78 }}>
+              <RankCard repo={repo} emphasis={isTarget ? push : 0} index={Math.min(index, 9)} durationFrames={durationFrames} context={context} />
+            </div>;
+          })}
+        </div>
+      </div>
     </div>
     <div style={{ position: "absolute", bottom: 265, left: 76, right: 76, textAlign: "center", color: palette.ink, fontWeight: 800 }}><TextBlock layout={textLayout(`今天介绍：${selected.fullName}`, 928, 84, 30, 28, 800)} name="本期仓库名" progress={textProgress(frame, durationFrames)} /></div>
     <div style={{ position: "absolute", top: 1450, left: 54, transformOrigin: "top left", transform: `translateY(${Math.sin(frame / 14) * 5}px) scale(.6)` }}><CodeMascot /></div>
@@ -665,7 +697,7 @@ export const ProjectVideo: React.FC<VideoProps> = ({ project, leaderboard, leade
       from += frames;
       return <Sequence key={`${segment.scene}-${index}`} from={start} durationInFrames={frames} name={segment.scene}>
         {segment.scene === "intro"
-          ? <LeaderboardScene project={project} leaderboard={leaderboard} caption={segment.text} durationFrames={frames} context={effectiveContext} />
+          ? <LeaderboardScene project={project} leaderboard={leaderboard} caption={segment.text} durationFrames={frames} context={effectiveContext} openingCues={segment.openingCues} />
           : <ExplainerScene project={project} scene={segment.scene} caption={segment.text} index={index} durationFrames={frames} beatId={segment.beatId} operationCues={segment.operationCues} />}
         {segment.audio ? <Audio src={staticFile(segment.audio)} /> : null}
       </Sequence>;
