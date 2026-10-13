@@ -43,9 +43,10 @@ def main() -> None:
         rendered_segments = []
         for segment_index, segment in enumerate(segments):
             text = segment.get("spokenText", segment["text"])
-            speech_parts = segment.get("speechParts") or [{"spokenText": text}]
+            speech_parts = segment.get("speechParts") or segment.get("openingParts") or [{"spokenText": text}]
             audio_parts = []
             operation_cues = []
+            opening_cues = []
             sample_cursor = 0
             for part in speech_parts:
                 part_audio = [
@@ -62,6 +63,12 @@ def main() -> None:
                         "startMs": round(sample_cursor * 1_000 / sample_rate),
                         "endMs": round((sample_cursor + part_samples) * 1_000 / sample_rate),
                     })
+                if "cueId" in part:
+                    opening_cues.append({
+                        **part,
+                        "startMs": round(sample_cursor * 1_000 / sample_rate),
+                        "endMs": round((sample_cursor + part_samples) * 1_000 / sample_rate),
+                    })
                 sample_cursor += part_samples
                 audio_parts.extend(part_audio)
             audio = np.concatenate(audio_parts)
@@ -73,11 +80,12 @@ def main() -> None:
             sf.write(audio_path, audio, sample_rate, subtype="PCM_16")
             duration_ms = round(len(audio) * 1_000 / sample_rate)
             rendered_segments.append({
-                **{key: value for key, value in segment.items() if key != "speechParts"},
+                **{key: value for key, value in segment.items() if key not in ("speechParts", "openingParts")},
                 "audio": str(audio_path),
                 "durationMs": duration_ms,
                 "spokenText": text,
                 **({"operationCues": operation_cues} if operation_cues else {}),
+                **({"openingCues": opening_cues} if opening_cues else {}),
             })
             print(
                 f"{script['repo']} {segment['scene']}: {duration_ms / 1_000:.1f}s",

@@ -53,6 +53,9 @@ export type NarrationSegment = {
 export type OperationSpeechPart = { stepIndex: number; text: string; spokenText: string };
 export type OperationCue = OperationSpeechPart & { startMs: number; endMs: number };
 
+export type OpeningSpeechPart = { cueId: "hook" | "rank"; text: string; spokenText: string };
+export type OpeningCue = OpeningSpeechPart & { startMs: number; endMs: number };
+
 export type HookFact = {
   id: string;
   point: string;
@@ -164,7 +167,7 @@ export type ProjectScript = {
 };
 
 export type RenderProject = Omit<ProjectScript, "narrationSegments"> & {
-  narrationSegments: Array<NarrationSegment & { audio: string; durationMs: number; spokenText: string; operationCues?: OperationCue[] }>;
+  narrationSegments: Array<NarrationSegment & { audio: string; durationMs: number; spokenText: string; operationCues?: OperationCue[]; openingCues?: OpeningCue[] }>;
 };
 
 export type RunPaths = {
