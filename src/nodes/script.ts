@@ -9,7 +9,7 @@ import { repoSlug } from "../lib/paths";
 import { requestChatCompletion, type ChatMessage } from "../lib/chat-completion";
 import { leaderboardContext, leaderboardPresentation } from "../lib/leaderboard";
 import { estimateNarration, loadNarrationTiming, MAX_VIDEO_DURATION_MS, narrationCharacterBudget, TARGET_VIDEO_DURATION_MS, type NarrationTiming } from "../lib/narration";
-import { hookEvidenceSelectionSchema, hookFactsSchema, hookMaterials, hookSelectionSchema, materializeHookFacts, normalizeHookFacts, selectableHookMaterials, validateHookFacts, validateOpeningHook, validatePublicScript, type HookPreparation } from "../lib/opening-hook";
+import { hookEvidenceSelectionSchema, hookFactsSchema, hookMaterials, hookSelectionSchema, materializeHookFacts, normalizeHookFacts, selectableHookMaterials, selectedOpeningHook, validateHookFacts, validateOpeningHook, validatePublicScript, type HookPreparation } from "../lib/opening-hook";
 
 const PROMPT_VERSION = "gh-weekly-script-v14-ordered-operation-narration";
 const NARRATION_GUIDE_PATH = path.resolve("docs", "小白视角讲稿规范.md");
@@ -139,19 +139,77 @@ function validateIntroSource(script: ProjectScript, context = script.leaderboard
   }
 }
 
+function chineseNumber(value: number): string {
+  if (!Number.isInteger(value) || value < 1) return "零";
+  const digits = "零一二三四五六七八九";
+  const units = ["", "十", "百", "千"];
+  const section = (n: number): string => {
+    let out = "";
+    let zero = false;
+    for (let place = 3; place >= 0; place--) {
+      const digit = Math.floor(n / 10 ** place) % 10;
+      if (digit === 0) { zero = out !== ""; continue; }
+      if (zero) { out += "零"; zero = false; }
+      out += digits[digit]! + units[place]!;
+    }
+    return out;
+  };
+  const wan = Math.floor(value / 10_000);
+  const rest = value % 10_000;
+  let reading = wan ? `${section(wan)}万` : "";
+  if (rest) reading += (wan && rest < 1_000 ? "零" : "") + section(rest);
+  return reading.replace(/^一十/u, "十").replace(/(?<!十)二(?=[千万])/gu, "两");
+}
+
+/** On screen "142K+ Star"; the voice reads the Chinese number, since the TTS mangles "K+" and "142,543". */
+function totalStarsPhrases(total: number): { text: string; spoken: string } {
+  if (total < 1_000) return { text: `累计 ${total} Star。`, spoken: `累计${chineseNumber(total)}颗星。` };
+  const thousands = Math.floor(total / 1_000);
+  return { text: `累计 ${thousands}K+ Star。`, spoken: `累计${chineseNumber(thousands * 1_000)}多颗星。` };
+}
+
+const starNumber = "(?:[零一二三四五六七八九十百千万两]+|\\d[\\d,.]*)";
+const starCountClause = new RegExp(`${starNumber}\\s*(?:个\\s*|颗\\s*)?(?:Star|star|星)|累计|总共|总计|总\\s*(?:Star|star|星)|新增.*${starNumber}|${starNumber}.*新增`, "u");
+
+/** Drop every clause that states a star count (total or weekly gain); the program restates the total once. */
+function stripStarClauses(text: string): string {
+  const sentences = text.match(/[^。！？!?]+[。！？!?]?/gu) ?? [];
+  return sentences.map((sentence) => {
+    const terminator = /[。！？!?]$/u.exec(sentence)?.[0] ?? "";
+    const parts = sentence.slice(0, sentence.length - terminator.length).split(/([，,；;])/u);
+    let kept = "";
+    for (let index = 0; index < parts.length; index += 2) {
+      if (!starCountClause.test(parts[index]!)) kept += parts[index]! + (parts[index + 1] ?? "");
+    }
+    kept = kept.replace(/[，,；;\s]+$/u, "");
+    return kept.trim() ? `${kept}${terminator || "。"}` : "";
+  }).filter(Boolean).join("");
+}
+
+function withTotalStars(content: string, hook: string | undefined, phrase: string): string {
+  const head = hook && content.startsWith(hook) ? hook : "";
+  const tail = content.slice(head.length);
+  const lead = /^\s*/u.exec(tail)![0];
+  const kept = stripStarClauses(tail.trim());
+  const joined = /。$/u.test(kept) ? `${kept.slice(0, -1)}，${phrase}` : kept ? `${kept} ${phrase}` : phrase;
+  return `${head}${lead}${joined}`;
+}
+
 function ensureIntroTotalStars(script: ProjectScript, source: RepoFacts): ProjectScript {
   const totalStars = source.totalStars;
   if (totalStars === null || totalStars === undefined) return { ...script, totalStars: totalStars ?? null };
   const intro = script.narrationSegments[0];
   if (!intro) return { ...script, totalStars };
-  const introText = `${intro.text} ${intro.spokenText ?? ""}`;
-  if (/(?:总\s*(?:star|星)|(?:当前|已有)[^。！？]{0,24}(?:star|星))/iu.test(introText)) return { ...script, totalStars };
-  const formatted = new Intl.NumberFormat("en-US").format(totalStars);
-  const sentence = `当前项目累计 ${formatted} 个 Star。`;
+  const hook = selectedOpeningHook(script.openingHook);
+  const phrases = totalStarsPhrases(totalStars);
   return {
     ...script,
     totalStars,
-    narrationSegments: [{ ...intro, text: `${intro.text} ${sentence}`, spokenText: `${intro.spokenText ?? intro.text} ${sentence}` }, ...script.narrationSegments.slice(1)],
+    narrationSegments: [{
+      ...intro,
+      text: withTotalStars(intro.text, hook?.text, phrases.text),
+      spokenText: withTotalStars(intro.spokenText ?? intro.text, hook ? hook.spokenText ?? hook.text : undefined, phrases.spoken),
+    }, ...script.narrationSegments.slice(1)],
   };
 }
 
@@ -381,7 +439,7 @@ async function generateBatch(facts: RepoFacts[], timing: NarrationTiming, output
     "原理段只深入两到三个最能回答钩子的机制，先具体再抽象，不穷举采集到的所有事实。一个解释句尽量不超过约三十五个汉字，长因果拆成短句；短句之间保持因果，不能变成标签列表。资料缺少的内部机制不能反复抢占问题段和总结，集中在条件与边界简短说明。",
     "现有画面使用有限空间的原理图：整段最多六个核心对象，复用已经出现的对象 id，不把每个技术词都画成新对象。每拍最多新增两个对象，用现有关系解释最关键机制；其他细节由口播和案例说明，不为了展示事实清单堆满画布。",
     "selectedPayoff.excerpt 必须有解释性内容，比如一个明确的分工、状态变化或输入怎样变成结果，不能只说‘能统一管理/由系统处理/带来结果’或换词重复钩子前提。所选钩子可以靠多个 beat 合起来回答，excerpt 保护其中关键解释句。",
-    "严格按场景放置口播：intro 第一部分必须逐字使用 selectedId 对应候选的 text（spokenText 有特殊读法则用它），先提出知识问题，再简短介绍项目名、榜单来源、原始名次和节点 2 获取的 totalStars；总 Star 要明确说出，不要把当期新增误说成总数。不要先念排名和 Star 数字。problem 建立具体痛点；concept 拆开解释机制并兑现钩子；case 才展开完整案例，dashboard 讲结果如何检查；setup 只讲前置准备；workflow 严格按 usageSteps 逐项讲‘第一步、第二步……’，并说明每步动作、目的和结果；requirements 说明条件边界；summary 用日常语言收束答案。每段口播必须和该段画面对应。",
+    "严格按场景放置口播：intro 第一部分必须逐字使用 selectedId 对应候选的 text（spokenText 有特殊读法则用它），先提出知识问题，再简短介绍项目名、榜单来源、原始名次和节点 2 获取的 totalStars；开场口播和字幕里不要写任何 Star 数字（累计和当期新增都不写），程序会在开场末尾统一补一句“累计 xxxK+ Star”。不要先念排名和 Star 数字。problem 建立具体痛点；concept 拆开解释机制并兑现钩子；case 才展开完整案例，dashboard 讲结果如何检查；setup 只讲前置准备；workflow 严格按 usageSteps 逐项讲‘第一步、第二步……’，并说明每步动作、目的和结果；requirements 说明条件边界；summary 用日常语言收束答案。每段口播必须和该段画面对应。",
     "conceptStoryboard 的 beats 必须按口播顺序讲清一个项目的核心原理。每个 beat 必须同时给出 text（这一拍要说的话）和可选 spokenText，voiceShare 是 concept 口播中该节拍所占比例，所有 voiceShare 之和应接近 1。cue 只是程序内部的时间锚点，绝不作为观众可见文字；cue 只写简短的动作标记，不要写‘首先’、‘接着’、‘然后’、‘最后’等思考过程或讲解句。先画输入或问题，再逐步画核心对象和关系，最后画结果；不要把所有对象一开始铺满。对象位置只提供语义参考，渲染器会自动排版；不要在同一行堆卡片。每一个新增对象都必须通过 connectors 与已经出现或本拍出现的对象建立有口播依据的关系；没有关系的装饰对象不要输出。仅使用允许的对象类型，不写 React、SVG 或其他代码，不编造资料中没有的内部机制。",
     "不要输出背景、网格、渐变、边框、装饰图案或整张图片；背景和画布由程序统一提供。你的输出只描述要画的对象、对象之间的关系和每一拍的口播。",
     "conceptStoryboard 的 title 必须概括项目原理，summary 必须是一句普通人能听懂的话。多 Agent 项目可以画 agent 和 context；编译器、转换器、数据处理项目应按输入、处理、输出选择对象。动作只表达画出、连接、圈定、转换、强调、结果或停留。",
