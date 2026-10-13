@@ -425,7 +425,7 @@ async function prepareHookFacts(source: RepoFacts, outputDirectory: string, timi
   return preparation;
 }
 
-async function generateBatch(facts: RepoFacts[], timing: NarrationTiming, outputDirectory: string, narrationGuide: string): Promise<ProjectScript[]> {
+async function generateBatch(facts: RepoFacts[], timing: NarrationTiming, outputDirectory: string, narrationGuide: string, reviewFeedback?: string[]): Promise<ProjectScript[]> {
   if (!config.openAiApiKey || !config.openAiModel) {
     throw new Error("节点 3 需要配置 OPENAI_API_KEY 和 OPENAI_MODEL。请复制 .env.example 为 .env 并填写；脚本生成结果会按输入与模型缓存。");
   }
@@ -468,7 +468,7 @@ async function generateBatch(facts: RepoFacts[], timing: NarrationTiming, output
   ].join("\n");
   const messages: ChatMessage[] = [
     { role: "system", content: system },
-    { role: "user", content: JSON.stringify({ projects: facts.map((source) => ({ ...factsForPrompt(source), preparation: preparations.get(source.fullName.toLowerCase()) })), narrationBudget: { targetSeconds: 180, maximumSeconds: 200, maximumSpokenCharacters: narrationCharacterBudget(timing, 16), voice: timing.voice, speed: timing.speed, pauseMs: timing.pauseMs } }) },
+    { role: "user", content: JSON.stringify({ projects: facts.map((source) => ({ ...factsForPrompt(source), preparation: preparations.get(source.fullName.toLowerCase()) })), narrationBudget: { targetSeconds: "按项目复杂度自适应，通常 120–180", maximumSeconds: 200, maximumSpokenCharacters: narrationCharacterBudget(timing, 16), voice: timing.voice, speed: timing.speed, pauseMs: timing.pauseMs }, ...(reviewFeedback?.length ? { reviewFeedback: `上一版讲稿的试听审核未通过，请在保留事实的前提下针对性重写：${reviewFeedback.join("；")}` } : {}) }) },
   ];
   let content = await requestChatCompletion(messages);
   try {
@@ -628,6 +628,34 @@ async function fitNarrationBudget(script: ProjectScript, timing: NarrationTiming
   return working;
 }
 
+const comprehensionSchema = z.object({
+  whatIsIt: z.string().max(120),
+  solves: z.string().max(160),
+  nextStep: z.string().max(120),
+  unexplainedTerms: z.array(z.string().max(40)).max(8),
+  brokenLinks: z.array(z.string().max(80)).max(8),
+  matchesIntent: z.boolean(),
+  issues: z.array(z.string().max(160)).max(8),
+});
+export type ComprehensionReview = z.infer<typeof comprehensionSchema> & { passed: boolean };
+
+/** Read the script as a first-time viewer would, then compare what they understood with what the script meant to say. */
+async function reviewComprehension(script: ProjectScript): Promise<ComprehensionReview> {
+  const narration = script.narrationSegments.map((segment) => `【${segment.scene}】${segment.text}`).join("\n");
+  const content = await requestChatCompletion([
+    { role: "system", content: [
+      "你是第一次看这个视频的观众：有一定编程或 AI 开发基础，但对这个项目一无所知。下面只给你配音字幕稿。",
+      "先只根据 narration 回答：whatIsIt（这是什么项目，一句话）、solves（它解决什么具体问题）、nextStep（想用它，第一步做什么）；答不出就写“看不出来”，不要借助 intent 或你自己的知识补全。",
+      "unexplainedTerms：没有被日常说法解释就直接使用的术语。brokenLinks：首句没有承接上一段、像重新开始的段落，写成“scene：原因”。",
+      "最后才对照 intent 判断 matchesIntent：你的三个回答是否与作者想表达的意思一致。issues 写需要作者修改的具体问题，每条一句话。只输出符合 JSON Schema 的 JSON。",
+      JSON.stringify(z.toJSONSchema(comprehensionSchema)),
+    ].join("\n") },
+    { role: "user", content: JSON.stringify({ narration, intent: { oneLineSummary: script.oneLineSummary, problem: script.problem, firstStep: script.usageSteps[0] } }) },
+  ]);
+  const review = comprehensionSchema.parse(safeJson(content));
+  return { ...review, passed: review.matchesIntent && review.unexplainedTerms.length <= 2 && review.brokenLinks.length <= 3 };
+}
+
 export async function persistHookReview(script: ProjectScript, outputDirectory: string): Promise<void> {
   if (!script.openingHook) return;
   await writeJson(path.join(outputDirectory, `${repoSlug(script.repo)}.hook-review.json`), {
@@ -683,6 +711,20 @@ export async function generateScripts(facts: RepoFacts[], outputDirectory: strin
       try {
         generated = await generateBatch([item], timing, outputDirectory, narrationGuide);
         generated = await Promise.all(generated.map((script) => fitNarrationBudget(script, timing)));
+        for (let attempt = 0; attempt < 2; attempt++) {
+          let review: ComprehensionReview | undefined;
+          try { review = await reviewComprehension(generated[0]!); }
+          catch (error) { console.log(`[节点 3] ${item.fullName} 试听审核未能完成，已跳过：${error instanceof Error ? error.message : String(error)}`); }
+          if (review) {
+            await writeJson(path.join(outputDirectory, `${repoSlug(item.fullName)}.comprehension.json`), { repo: item.fullName, attempt: attempt + 1, checkedAt: new Date().toISOString(), ...review });
+            console.log(`[节点 3] ${item.fullName} 试听审核${review.passed ? "通过" : "未通过"}：${review.whatIsIt}`);
+          }
+          if (!review || review.passed) break;
+          if (attempt === 1) { console.log(`[节点 3] ${item.fullName} 重写后仍未通过试听审核，保留当前讲稿，问题见 ${repoSlug(item.fullName)}.comprehension.json`); break; }
+          console.log(`[节点 3] ${item.fullName} 试听审核未通过，按审核意见重写一次`);
+          generated = await generateBatch([item], timing, outputDirectory, narrationGuide, [...review.issues, ...review.unexplainedTerms.map((term) => `术语“${term}”需要先用日常说法解释`), ...review.brokenLinks]);
+          generated = await Promise.all(generated.map((script) => fitNarrationBudget(script, timing)));
+        }
       } catch (error) {
         validationReport.push({ repo: item.fullName, status: "failed", issues: [error instanceof Error ? error.message : String(error)] });
         await writeJson(path.join(outputDirectory, "storyboard-validation.json"), validationReport);
