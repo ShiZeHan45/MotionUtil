@@ -1,7 +1,7 @@
 import React from "react";
 import type { ActionCategory } from "./categories";
 import { Character } from "./characters";
-import { clamp, ease, lerp, palette, SIZES, span } from "./style";
+import { ease, lerp, palette, SIZES, span, STROKE } from "./style";
 
 export type Point = { x: number; y: number };
 export type ActionProps = { from: Point; to: Point; t: number };
@@ -83,8 +83,14 @@ const merge: ActionRender = ({ from, to, t }) => {
   </>;
 };
 
+const introduce: ActionRender = ({ to, t }) => {
+  const grow = ease(span(t, 0.05, 0.8));
+  const radius = 70 + 70 * grow;
+  return <div style={{ position: "absolute", left: to.x - radius, top: to.y - radius, width: radius * 2, height: radius * 2, borderRadius: "50%", border: `${STROKE.base}px solid ${palette.teal}`, opacity: 0.9 * (1 - span(t, 0.7, 1)) }} />;
+};
+
 // Categories without an entry here cannot be drawn yet; scenes using them fall back to the card diagram.
-export const ACTIONS: Partial<Record<ActionCategory, ActionRender>> = { send, transform, store, check, split, merge };
+export const ACTIONS: Partial<Record<ActionCategory, ActionRender>> = { introduce, send, transform, store, check, split, merge };
 
 export function canRender(category: ActionCategory): boolean {
   return category in ACTIONS;

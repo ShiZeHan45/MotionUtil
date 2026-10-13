@@ -7,6 +7,7 @@ import { config } from "../lib/config";
 import { readJson, safeJson, writeJson } from "../lib/io";
 import { repoSlug } from "../lib/paths";
 import { requestChatCompletion, type ChatMessage } from "../lib/chat-completion";
+import { ensureMetaphor } from "./metaphor";
 import { leaderboardContext, leaderboardPresentation } from "../lib/leaderboard";
 import { estimateNarration, loadNarrationTiming, MAX_VIDEO_DURATION_MS, narrationCharacterBudget, TARGET_VIDEO_DURATION_MS, type NarrationTiming } from "../lib/narration";
 import { hookEvidenceSelectionSchema, hookFactsSchema, hookMaterials, hookSelectionSchema, materializeHookFacts, normalizeHookFacts, selectableHookMaterials, selectedOpeningHook, validateHookFacts, validateOpeningHook, validatePublicScript, type HookPreparation } from "../lib/opening-hook";
@@ -687,9 +688,11 @@ export async function generateScripts(facts: RepoFacts[], outputDirectory: strin
     const scriptKey = cacheKey(item, timing, narrationGuideHash);
     const cachePath = path.join(cacheDirectory, `${repoSlug(item.fullName)}-${scriptKey}.json`);
     try {
-      const saved = ensureIntroTotalStars(await readJson<ProjectScript>(cachePath), item);
+      let saved = ensureIntroTotalStars(await readJson<ProjectScript>(cachePath), item);
       validateScriptCoverage(saved, item, timing);
       if (estimateNarration(saved, timing).durationMs > MAX_VIDEO_DURATION_MS) throw new Error("缓存讲稿超出当前配音时长预算");
+      const withMetaphor = await ensureMetaphor(saved);
+      if (withMetaphor !== saved) { saved = withMetaphor; await writeJson(cachePath, saved); }
       cached.set(item.fullName.toLowerCase(), { ...saved, visualAssets: item.visualAssets, leaderboard: leaderboardContext(item.leaderboard) });
       await writeJson(path.join(outputDirectory, `${repoSlug(item.fullName)}.json`), cached.get(item.fullName.toLowerCase()));
       await persistHookReview(saved, outputDirectory);
@@ -730,7 +733,7 @@ export async function generateScripts(facts: RepoFacts[], outputDirectory: strin
         await writeJson(path.join(outputDirectory, "storyboard-validation.json"), validationReport);
         throw error;
       }
-      const script = generated[0];
+      const script = generated[0] ? await ensureMetaphor(generated[0]) : undefined;
       if (!script) throw new Error(`讲稿生成缺失：${item.fullName}`);
       cached.set(item.fullName.toLowerCase(), { ...script, visualAssets: item.visualAssets });
       await writeJson(path.join(cacheDirectory, `${repoSlug(item.fullName)}-${cacheKey(item, timing, narrationGuideHash)}.json`), script);

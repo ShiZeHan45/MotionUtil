@@ -22,12 +22,13 @@ function ActorTag({ actor, name }: { actor: MetaphorActor; name: string }) {
 }
 
 /** Draws one metaphor scene. `progress` (0–1) overrides the timeline so stills can be rendered at any moment. */
-export function MetaphorStage({ scene, progress, durationFrames }: { scene: MetaphorScene; progress?: number; durationFrames?: number }) {
+/** `at` pins the stage to one step (used when each concept beat shows its own step); `showCaption` hides the built-in caption when the video already has subtitles. */
+export function MetaphorStage({ scene, progress, durationFrames, at, showCaption = true }: { scene: MetaphorScene; progress?: number; durationFrames?: number; at?: { stepIndex: number; t: number }; showCaption?: boolean }) {
   const frame = useCurrentFrame();
   const { durationInFrames } = useVideoConfig();
   const total = scene.steps.length;
   const p = clamp(progress ?? frame / Math.max(1, (durationFrames ?? durationInFrames) - 1));
-  const position = Math.min(total - 0.0001, p * total);
+  const position = at ? Math.min(total - 0.0001, Math.max(0, at.stepIndex) + clamp(at.t)) : Math.min(total - 0.0001, p * total);
   const stepIndex = Math.floor(position);
   const t = position - stepIndex;
   const step = scene.steps[stepIndex]!;
@@ -49,9 +50,9 @@ export function MetaphorStage({ scene, progress, durationFrames }: { scene: Meta
       </React.Fragment>;
     })}
     <ActionLayer category={step.action} from={centre(step.from)} to={centre(step.to)} t={t} />
-    <div data-text-region="比喻说明" style={{ position: "absolute", left: 0, right: 0, bottom: 0, minHeight: 92, padding: "14px 24px", boxSizing: "border-box", borderRadius: 26, border: `4px solid ${palette.ink}`, background: palette.cream, display: "flex", justifyContent: "center", alignItems: "center", boxShadow: SHADOW.caption }}>
+    {showCaption && <div data-text-region="比喻说明" style={{ position: "absolute", left: 0, right: 0, bottom: 0, minHeight: 92, padding: "14px 24px", boxSizing: "border-box", borderRadius: 26, border: `4px solid ${palette.ink}`, background: palette.cream, display: "flex", justifyContent: "center", alignItems: "center", boxShadow: SHADOW.caption }}>
       <TextBlock layout={textLayout(`${stepIndex + 1}/${total}  ${step.say}`, 880, 64, 34, 26, 900)} name="比喻说明" style={{ color: palette.ink, textAlign: "center", fontWeight: 900 }} />
-    </div>
+    </div>}
   </div>;
 }
 

@@ -6,6 +6,9 @@ import { isExcludedEvidenceAsset } from "../lib/visual-assets";
 import { selectedOpeningHook } from "../lib/opening-hook";
 import { activeOperationCue, OPERATION_STEP_LABELS } from "../lib/operation-timing";
 import { openingTiming } from "../lib/opening-timing";
+import { MetaphorStage } from "./metaphor/MetaphorStage";
+import { evaluateMetaphor, groundingText } from "./metaphor/plan";
+import type { MetaphorScene } from "./metaphor/scenes";
 import { LayoutGuard, TextBlock, textLayout, textProgress, VIDEO_FONT, type TextLayout } from "./text-layout";
 import { connectorId, layoutConceptGraph, type ConceptGraphLayout, type GraphEdge, type GraphNode } from "./concept-layout";
 
@@ -571,10 +574,26 @@ function ConceptWalkthrough({ project, caption, durationFrames }: { project: Ren
   </AbsoluteFill>;
 }
 
+function MetaphorConceptScene({ project, metaphor, stepIndex, caption, durationFrames }: { project: RenderProject; metaphor: MetaphorScene; stepIndex: number; caption: string; durationFrames: number }) {
+  const frame = useCurrentFrame();
+  const t = textProgress(frame, durationFrames);
+  const title = textLayout(`${project.title || project.repo}：可以把它想成${metaphor.name}`, 936, 138, 44, 34, 950);
+  const stageTop = 234 + 32 + 15 + title.height + 36;
+  return <AbsoluteFill style={{ color: palette.ink }}>
+    <div style={{ position: "absolute", top: 234, left: 72, right: 72 }}>
+      <div style={{ fontSize: 24, letterSpacing: 3, color: palette.teal, fontWeight: 950 }}>第二步 · 先理解原理</div>
+      <TextBlock layout={title} name="原理标题" progress={t} style={{ marginTop: 15, fontWeight: 950 }} />
+    </div>
+    <div style={{ position: "absolute", top: stageTop, left: 70 }}><MetaphorStage scene={metaphor} at={{ stepIndex, t: Math.min(1, t * 1.15) }} showCaption={false} /></div>
+    <Subtitle text={caption} durationFrames={durationFrames} />
+  </AbsoluteFill>;
+}
+
 function ExplainerScene({ project, scene, caption, index, durationFrames, beatId, operationCues }: { project: RenderProject; scene: string; caption: string; index: number; durationFrames: number; beatId?: string; operationCues?: OperationCue[] }) {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const progress = spring({ frame, fps, config: { damping: 20, mass: 0.8 } });
+  const metaphor = React.useMemo(() => evaluateMetaphor(project.metaphor?.plan, { beatIds: project.conceptStoryboard?.beats.map((beat) => beat.id) ?? [], knownText: groundingText(project) }), [project]);
   const flow = project.exampleFlow ?? [];
   const steps = project.usageSteps ?? [];
   const requirements = project.requirements ?? [];
@@ -626,6 +645,7 @@ function ExplainerScene({ project, scene, caption, index, durationFrames, beatId
   const contentBottom = bodyTop + mainHeight + 13 + detailHeight;
   const visualTop = Math.max(674, contentBottom + 34);
   const opacity = interpolate(progress, [0, 1], [0, 1]);
+  if (scene === "concept" && beatId && metaphor.use && metaphor.scene) return <MetaphorConceptScene project={project} metaphor={metaphor.scene} stepIndex={metaphor.stepByBeat.get(beatId) ?? 0} caption={caption} durationFrames={durationFrames} />;
   if (scene === "concept") return <ConceptStoryboardScene project={project} caption={caption} durationFrames={durationFrames} beatId={beatId} />;
   return <AbsoluteFill style={{ color: palette.ink }}>
     <div style={{ position: "absolute", top: 234, left: 76, right: 76, opacity, transform: `translateY(${(1 - progress) * 35}px)` }}>

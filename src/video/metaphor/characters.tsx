@@ -3,6 +3,7 @@ import { CHARACTER_CANVAS, materials, palette, SHADOW, STROKE, strokeProps } fro
 
 export type CharacterProps = { size: number; color?: string; rotate?: number };
 type CharacterRender = (props: CharacterProps) => React.ReactElement;
+// `use` tells the planning model what each character can stand for; it is part of the vocabulary hash.
 
 const Frame: React.FC<{ size: number; children: React.ReactNode }> = ({ size, children }) => (
   <svg viewBox={`0 0 ${CHARACTER_CANVAS} ${CHARACTER_CANVAS}`} width={size} height={size} style={{ filter: SHADOW.character, overflow: "visible" }}>
@@ -90,15 +91,15 @@ const lens: CharacterRender = ({ size }) => (
 );
 
 export const CHARACTERS = {
-  person: { zh: "人", render: person },
-  assistant: { zh: "助手", render: assistant },
-  file: { zh: "文件", render: file },
-  box: { zh: "箱子", render: box },
-  server: { zh: "服务", render: server },
-  packet: { zh: "包裹", render: packet },
-  gear: { zh: "齿轮", render: gear },
-  lens: { zh: "放大镜", render: lens },
-} as const satisfies Record<string, { zh: string; render: CharacterRender }>;
+  person: { zh: "人", use: "用户、开发者、请求的发起方", render: person },
+  assistant: { zh: "助手", use: "智能体、编程助手、负责协调的程序或服务", render: assistant },
+  file: { zh: "文件", use: "源码、文档、配置、被读取或处理的内容", render: file },
+  box: { zh: "箱子", use: "存储、仓库、数据库、产物目录", render: box },
+  server: { zh: "服务", use: "服务器、调度器、后台进程、接口", render: server },
+  packet: { zh: "包裹", use: "数据、消息、请求、结果（由动作自动出现，不需要当角色）", render: packet },
+  gear: { zh: "齿轮", use: "转换器、处理引擎、构建或分析流程", render: gear },
+  lens: { zh: "放大镜", use: "检查、验证、审查工具（由 check 动作自动出现，不需要当角色）", render: lens },
+} as const satisfies Record<string, { zh: string; use: string; render: CharacterRender }>;
 
 export type CharacterId = keyof typeof CHARACTERS;
 export function Character({ id, ...props }: CharacterProps & { id: CharacterId }) {

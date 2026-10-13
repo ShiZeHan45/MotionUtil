@@ -1,6 +1,7 @@
 // Closed vocabulary for metaphor animations. A beat is first classified into one of these categories;
 // only categories with a renderer in ACTIONS can be drawn, everything else falls back to the card diagram.
 export const ACTION_CATEGORIES = {
+  introduce: { zh: "登场", hint: "介绍场景里出现的对象，交代起点（from 和 to 填同一个角色）" },
   send: { zh: "递送", hint: "把东西从 A 送到 B" },
   receive: { zh: "接收", hint: "B 收到并确认" },
   transform: { zh: "转换", hint: "换一种形式或格式" },

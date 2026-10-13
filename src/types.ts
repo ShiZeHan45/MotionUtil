@@ -53,6 +53,18 @@ export type NarrationSegment = {
 export type OperationSpeechPart = { stepIndex: number; text: string; spokenText: string };
 export type OperationCue = OperationSpeechPart & { startMs: number; endMs: number };
 
+export type MetaphorPlan = {
+  version: 1;
+  name: string;
+  /** The model's own estimate (0–1) of how well a cartoon metaphor explains this project without distorting it. */
+  fit: number;
+  fitReason: string;
+  actors: Array<{ id: string; character: string; label: string; real: string; slot: string }>;
+  /** Every concept beat gets a category from the closed action list; `step` is set only when that category can be drawn. */
+  beats: Array<{ beatId: string; category: string; step: { action: string; from: string; to: string; say: string } | null }>;
+};
+export type MetaphorRecord = { vocabularyHash: string; plan: MetaphorPlan | null };
+
 export type OpeningSpeechPart = { cueId: "hook" | "rank"; text: string; spokenText: string };
 export type OpeningCue = OpeningSpeechPart & { startMs: number; endMs: number };
 
@@ -161,6 +173,7 @@ export type ProjectScript = {
   openingHook?: OpeningHookPlan;
   visualAssets?: VisualAsset[];
   conceptStoryboard?: ConceptStoryboard;
+  metaphor?: MetaphorRecord;
   narrationSegments: NarrationSegment[];
   sources: string[];
   leaderboard?: LeaderboardContext;
