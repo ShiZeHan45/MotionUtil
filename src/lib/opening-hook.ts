@@ -29,7 +29,7 @@ export type HookEvidenceSelection = z.infer<typeof hookEvidenceSelectionSchema>;
 export const hookSelectionSchema = z.object({
   candidates: z.array(z.object({
     id: z.string().regex(/^hook-[1-5]$/),
-    type: z.enum(["A", "B", "C"]),
+    type: z.enum(["A", "B", "C", "D"]),
     text: z.string().min(1).max(100),
     spokenText: z.string().min(1).max(120).optional(),
     factIds: z.array(z.string()).max(4),
@@ -195,11 +195,14 @@ export function validateOpeningHook(script: ProjectScript): void {
       if (!numericTokens(evidence).includes(number)) throw new Error(`${candidate.id} 数字 ${number} 没有引用原文依据`);
     }
   }
-  if (["A", "B", "C"].some((type) => !plan.candidates.some((candidate) => candidate.type === type))) {
-    throw new Error(`${script.repo} 五个候选必须覆盖 A/B/C；缺乏依据的类型可明确标为不适用`);
+  if (["A", "B", "C", "D"].some((type) => !plan.candidates.some((candidate) => candidate.type === type))) {
+    throw new Error(`${script.repo} 五个候选必须覆盖 A/B/C/D；缺乏依据的类型可明确标为不适用`);
   }
   const selected = selectedOpeningHook(plan);
   if (!selected) throw new Error(`${script.repo} 选中的开场钩子不存在或不适用`);
+  if (selected.type !== "D" && plan.candidates.some((candidate) => candidate.type === "D" && candidate.suitable)) {
+    throw new Error(`${script.repo} 存在适用的 D 类“一句话讲通透”候选，必须优先选 D 类`);
+  }
   const answer = script.conceptStoryboard?.beats.find((beat) => beat.id === plan.selectedPayoff.beatId);
   if (!selected.payoffBeatIds.includes(plan.selectedPayoff.beatId) || !answer
     || !answer.text.includes(plan.selectedPayoff.excerpt) || !(answer.spokenText ?? answer.text).includes(plan.selectedPayoff.excerpt)) {

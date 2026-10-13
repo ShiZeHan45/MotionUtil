@@ -68,7 +68,7 @@ export type HookFact = {
 
 export type OpeningHookCandidate = {
   id: string;
-  type: "A" | "B" | "C";
+  type: "A" | "B" | "C" | "D";
   text: string;
   spokenText?: string;
   factIds: string[];

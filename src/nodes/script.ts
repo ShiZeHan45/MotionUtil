@@ -11,7 +11,8 @@ import { leaderboardContext, leaderboardPresentation } from "../lib/leaderboard"
 import { estimateNarration, loadNarrationTiming, MAX_VIDEO_DURATION_MS, narrationCharacterBudget, TARGET_VIDEO_DURATION_MS, type NarrationTiming } from "../lib/narration";
 import { hookEvidenceSelectionSchema, hookFactsSchema, hookMaterials, hookSelectionSchema, materializeHookFacts, normalizeHookFacts, selectableHookMaterials, selectedOpeningHook, validateHookFacts, validateOpeningHook, validatePublicScript, type HookPreparation } from "../lib/opening-hook";
 
-const PROMPT_VERSION = "gh-weekly-script-v14-ordered-operation-narration";
+const PROMPT_VERSION = "gh-weekly-script-v15-anchor-doc-d-hook";
+const HOOK_GUIDE_PATH = path.resolve("docs", "开源项目_开场锚点.md");
 const NARRATION_GUIDE_PATH = path.resolve("docs", "小白视角讲稿规范.md");
 const MAX_BUDGET_REVISIONS = 3;
 const conceptObjectSchema = z.object({
@@ -426,10 +427,10 @@ async function generateBatch(facts: RepoFacts[], timing: NarrationTiming, output
     "输入 leaderboard 指定榜单来源、名称和统计区间，名次和仓库名必须原样保留。来源只能从每个项目 allowedSources 里选择。Star History 涨星周榜不能称为 GitHub Trending；涨星数是统计区间新增，不是总 Stars。没有起止日期时不得推算或编造日期。",
     "只输出 JSON，不要 Markdown、代码围栏或额外解释。JSON 格式为 {\"scripts\":[...]}。",
     "每个项目必须输出 repo, rank, title, oneLineSummary, problem, features（最多3项）, audience, usage, exampleScenario, exampleFlow（2到4步）, exampleResult, usageSteps（2到5步且按真实可复现顺序排列）, requirements（1到4项）, limitations（1到3项）, openingHook, narrationSegments, sources 和 conceptStoryboard；不要省略这些字段。",
-    "openingHook 只输出 candidates、selectedId、selectedReason、selectedPayoff。第一步 facts 不得改写。写五个候选 hook-1 至 hook-5，覆盖 A 技术原理悬念、B 认知刷新、C 趋势/学习价值，各至少一个。适用候选的 text 去空格后为 25–35 字符（中文、英文字符、数字和标点均计数），口语化、可直接念，吸引力来自原理或认知缺口，不靠好用、省事或夸张宣传。",
+    "openingHook 只输出 candidates、selectedId、selectedReason、selectedPayoff。第一步 facts 不得改写。写五个候选 hook-1 至 hook-5，覆盖 A 技术原理悬念、B 认知刷新、C 趋势/学习价值、D 一句话讲通透（“一个能让谁做到什么的项目”，说清项目是什么和能带来什么结果，不含需要先解释的术语，结果必须有材料依据，不夸大），各至少一个。适用候选的 text 去空格后为 25–35 字符（中文、英文字符、数字和标点均计数），口语化、可直接念，吸引力来自原理或认知缺口，不靠好用、省事或夸张宣传（D 类讲的是资料支持的项目能力，不是夸奖）。",
     "每个适用候选只引用 preparation.facts 中 suitable=true 的事实编号 factIds；用 payoffBeatIds 指向本讲稿 conceptStoryboard 中真实存在的 beat，并在 payoffExplanation 说明那几拍具体怎样回答钩子。对应 beat 的口播必须实际回答，不能只提到关键词或承诺后面讲。",
     "B 类不能编造‘大家以为’的普遍成见，只能用资料支持的设计对照，或用‘看起来像……为什么实际……’提出可核验的问题。某类缺乏依据时仍保留该类候选，suitable=false，text 可为【待填：认知对照依据】，factIds/payoffBeatIds 可为空，reason 说明缺什么；不能选不适用候选。C 类讲学习价值或资料支持的设计意义，不推测行业趋势、热度或收益。",
-    "输出前自查每个候选的数字和技术特性是否有事实依据、是否混入带货语气、是否能在原理段兑现；不能满足则标为不适用。selectedId 选择最能留住 targetAudience 且确实可兑现的候选，selectedReason 用一句话说明理由。候选、事实清单和理由仅是内部审核资料，不得写入口播或观众可见标签。",
+    "输出前自查每个候选的数字和技术特性是否有事实依据、是否混入带货语气、是否能在原理段兑现；不能满足则标为不适用。selectedId 选择最能留住 targetAudience 且确实可兑现的候选；D 类适用时必须优先选 D，否则选没背景的人听完一句话就能说出“这是什么项目”的候选，selectedReason 用一句话说明理由。候选、事实清单和理由仅是内部审核资料，不得写入口播或观众可见标签。",
     "selectedPayoff 指定所选钩子的核心兑现句：beatId 属于所选候选的 payoffBeatIds，excerpt 为 8–120 字符的完整通俗解释，必须逐字存在于该 beat 的 text 和 spokenText（若有）中；它应回答钩子问题，不只是重复问题。避免在兑现句使用需要特殊读法的数字。后续压缩将保留这句话。",
     "narrationSegments 必须正好九段且顺序固定：intro、problem、concept、case、dashboard、setup、workflow、requirements、summary；每段含 scene 和 text。数字需要特殊读法或长命令不适合逐字符念时可提供 spokenText，自然解释命令作用，不能加入 text 中没有的事实；text 用于字幕，spokenText 用于配音。其余情况避免重复整段。",
     "全片遵循具体情境→日常解释→必要技术名称→实际例子的讲法。每句话推进一个意思，不念功能清单，不堆技术名词和长英文缩写。首次技术术语先说明它解决什么问题再给出名称；不为了通俗删掉关键条件、因果和限制。类比只解释资料支持的机制，要说清是‘可以理解成/就像’，不能编造内部实现。每项能力都回答它如何解决前面的麻烦；案例和操作围绕同一具体任务，结论说明适合谁、解决什么、有哪些边界。",
@@ -475,7 +476,7 @@ async function generateBatch(facts: RepoFacts[], timing: NarrationTiming, output
       const content = await requestChatCompletion([
         { role: "system", content: [
           "你是开源科普视频的开场编辑，只修复五个知识钩子候选和 intro。只输出符合 JSON Schema 的 JSON。",
-          "不得改动已核验事实或现有原理 beats；只能引用适用事实与真实存在的 beat。每个适用候选 text 去空格后严格 25–35 字符（含英文、数字和标点）。覆盖 A/B/C；缺乏依据的类型标为不适用，禁止编造数字、功能、认知成见或趋势，禁止带货话术。",
+          "不得改动已核验事实或现有原理 beats；只能引用适用事实与真实存在的 beat。每个适用候选 text 去空格后严格 25–35 字符（含英文、数字和标点）。覆盖 A/B/C/D；D 类适用时必须被选中；缺乏依据的类型标为不适用，禁止编造数字、功能、认知成见或趋势，禁止带货话术。",
           "所选候选必须适用，intro 首先逐字使用所选 text/spokenText，再简短介绍原榜单名次、来源和项目名；selectedPayoff.excerpt 必须逐字摘自现有 beat 的字幕和口播，并回答钩子问题。",
           JSON.stringify(z.toJSONSchema(hookRevisionSchema)),
         ].join("\n") },
@@ -621,7 +622,7 @@ export async function persistHookReview(script: ProjectScript, outputDirectory: 
     ...script.openingHook,
     intro: script.narrationSegments[0],
     payoffBeat: script.conceptStoryboard?.beats.find((beat) => beat.id === script.openingHook?.selectedPayoff.beatId),
-    checks: ["事实原文逐字核对", "五个候选与三种机制", "适用事实引用", "钩子字数与数字依据", "所选钩子先讲", "兑现句存在于实际字幕和口播", "待填不进入成片"],
+    checks: ["事实原文逐字核对", "五个候选与四种机制", "适用事实引用", "钩子字数与数字依据", "所选钩子先讲", "兑现句存在于实际字幕和口播", "待填不进入成片"],
     semanticReview: "原文引用和结构校验不等于事实推论或观众理解的完整证明，首批样片仍需人工验收",
   });
 }
@@ -630,9 +631,11 @@ export async function generateScripts(facts: RepoFacts[], outputDirectory: strin
   console.log(`[节点 3] 模型服务：${config.openAiBaseUrl}；模型：${config.openAiModel || "未配置"}；思考强度：${config.openAiReasoningEffort ?? "自动"}；配音语速：${config.kokoroSpeed}`);
   const timing = await loadNarrationTiming();
   let narrationGuide: string;
-  try { narrationGuide = await readFile(NARRATION_GUIDE_PATH, "utf8"); }
-  catch (error) {
-    throw new Error(`节点 3 无法读取讲稿质量规范 ${NARRATION_GUIDE_PATH}：${error instanceof Error ? error.message : String(error)}`);
+  try {
+    // The hook guide is part of the guide text, so editing either document invalidates the script cache.
+    narrationGuide = `${await readFile(NARRATION_GUIDE_PATH, "utf8")}\n\n《开场锚点写作规范》（决定知识钩子候选的写法和选择标准，同样不是项目事实来源）：\n${await readFile(HOOK_GUIDE_PATH, "utf8")}`;
+  } catch (error) {
+    throw new Error(`节点 3 无法读取讲稿质量规范或开场锚点规范 ${NARRATION_GUIDE_PATH}、${HOOK_GUIDE_PATH}：${error instanceof Error ? error.message : String(error)}`);
   }
   const narrationGuideHash = createHash("sha256").update(narrationGuide).digest("hex");
   const cacheDirectory = path.resolve(".cache", "scripts");
