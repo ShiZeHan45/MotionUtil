@@ -11,6 +11,7 @@
     "repos": "tsx src/cli.ts repos",
     "scripts": "tsx src/cli.ts scripts",
     "tts": "tsx src/cli.ts tts",
+    "check:metaphor": "tsx src/video/metaphor/check.tsx",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

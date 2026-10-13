@@ -2,13 +2,14 @@ import React from "react";
 import { AbsoluteFill, interpolate, useCurrentFrame, useVideoConfig } from "remotion";
 import { TextBlock, textLayout, LayoutGuard, VIDEO_FONT } from "../text-layout";
 import { ActionLayer, type Point } from "./actions";
-import { Character, palette } from "./characters";
+import { Character } from "./characters";
+import { palette, SHADOW, SIZES, STAGE } from "./style";
 import type { MetaphorActor, MetaphorScene } from "./scenes";
 
-export const STAGE_WIDTH = 940;
-export const STAGE_HEIGHT = 900;
-const ACTOR_AREA = 700;
-const ACTOR_SIZE = 170;
+const STAGE_WIDTH = STAGE.width;
+const STAGE_HEIGHT = STAGE.height;
+const ACTOR_AREA = STAGE.actorArea;
+const ACTOR_SIZE = SIZES.actor;
 const clamp = (value: number) => Math.min(1, Math.max(0, value));
 
 function ActorTag({ actor, name }: { actor: MetaphorActor; name: string }) {
@@ -34,7 +35,7 @@ export function MetaphorStage({ scene, progress, durationFrames }: { scene: Meta
   const centre = (id: string): Point => { const actor = byId.get(id)!; return { x: actor.at.x * STAGE_WIDTH, y: actor.at.y * ACTOR_AREA }; };
   const firstStep = (id: string) => Math.max(0, scene.steps.findIndex((item) => item.from === id || item.to === id));
   return <div style={{ position: "relative", width: STAGE_WIDTH, height: STAGE_HEIGHT, fontFamily: VIDEO_FONT }}>
-    <div style={{ position: "absolute", left: 0, top: 0, width: STAGE_WIDTH, height: ACTOR_AREA + 70, borderRadius: 40, background: "rgba(255,255,255,.6)", border: `4px solid ${palette.ink}`, boxShadow: "0 10px 0 rgba(20,52,74,.10)" }} />
+    <div style={{ position: "absolute", left: 0, top: 0, width: STAGE_WIDTH, height: ACTOR_AREA + 70, borderRadius: 40, background: SHADOW.panelFill, border: `4px solid ${palette.ink}`, boxShadow: SHADOW.panel }} />
     {scene.actors.map((actor) => {
       const appear = firstStep(actor.id);
       const shown = stepIndex > appear ? 1 : stepIndex < appear ? 0 : interpolate(t, [0, 0.18], [0, 1], { extrapolateRight: "clamp" });
@@ -48,7 +49,7 @@ export function MetaphorStage({ scene, progress, durationFrames }: { scene: Meta
       </React.Fragment>;
     })}
     <ActionLayer category={step.action} from={centre(step.from)} to={centre(step.to)} t={t} />
-    <div data-text-region="比喻说明" style={{ position: "absolute", left: 0, right: 0, bottom: 0, minHeight: 92, padding: "14px 24px", boxSizing: "border-box", borderRadius: 26, border: `4px solid ${palette.ink}`, background: palette.cream, display: "flex", justifyContent: "center", alignItems: "center", boxShadow: "0 8px 0 rgba(20,52,74,.12)" }}>
+    <div data-text-region="比喻说明" style={{ position: "absolute", left: 0, right: 0, bottom: 0, minHeight: 92, padding: "14px 24px", boxSizing: "border-box", borderRadius: 26, border: `4px solid ${palette.ink}`, background: palette.cream, display: "flex", justifyContent: "center", alignItems: "center", boxShadow: SHADOW.caption }}>
       <TextBlock layout={textLayout(`${stepIndex + 1}/${total}  ${step.say}`, 880, 64, 34, 26, 900)} name="比喻说明" style={{ color: palette.ink, textAlign: "center", fontWeight: 900 }} />
     </div>
   </div>;

@@ -3,7 +3,8 @@ import { AbsoluteFill } from "remotion";
 import { LayoutGuard, TextBlock, textLayout, VIDEO_FONT } from "../text-layout";
 import { ACTIONS, ActionLayer } from "./actions";
 import { ACTION_CATEGORIES, type ActionCategory } from "./categories";
-import { CHARACTERS, Character, palette, type CharacterId } from "./characters";
+import { CHARACTERS, Character, type CharacterId } from "./characters";
+import { palette } from "./style";
 
 const implemented = (Object.keys(ACTIONS) as ActionCategory[]);
 
@@ -38,7 +39,7 @@ export const MetaphorGallery: React.FC<{ progress?: number }> = ({ progress = 0.
     </div>
     <Heading>动作类别（封闭列表）</Heading>
     <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
-      {(Object.keys(ACTION_CATEGORIES) as ActionCategory[]).map((category) => <div key={category} data-text-region={`类别 ${category}`} style={{ padding: "8px 12px", borderRadius: 16, border: `3px solid ${palette.ink}`, background: category in ACTIONS ? palette.mint : "#fff", opacity: category in ACTIONS ? 1 : 0.7 }}>
+      {(Object.keys(ACTION_CATEGORIES) as ActionCategory[]).map((category) => <div key={category} data-text-region={`类别 ${category}`} style={{ padding: "8px 12px", borderRadius: 16, border: `3px solid ${palette.ink}`, background: category in ACTIONS ? palette.mint : palette.white, opacity: category in ACTIONS ? 1 : 0.7 }}>
         <TextBlock layout={textLayout(`${category in ACTIONS ? "✓" : "·"} ${ACTION_CATEGORIES[category].zh}`, 280, 32, 24, 18, 800)} name={`类别名 ${category}`} style={{ color: palette.ink, fontWeight: 800 }} />
       </div>)}
     </div>
