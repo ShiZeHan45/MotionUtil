@@ -8,7 +8,7 @@ import { ACTIONS, ActionLayer } from "./actions";
 import { ACTION_CATEGORIES, type ActionCategory } from "./categories";
 import { CHARACTERS, Character, type CharacterId } from "./characters";
 import { METAPHOR_SCENES } from "./scenes";
-import { allowedColors, allowedStrokeWidths, CHARACTER_CANVAS, materials, SHADOW, SIZES, STAGE } from "./style";
+import { allowedColors, allowedStrokeWidths, CHARACTER_CANVAS, materials, PAYLOAD_COLORS, SHADOW, SIZES, STAGE } from "./style";
 
 const baselinePath = path.resolve("src/video/metaphor/baseline.json");
 const update = process.argv.includes("--update");
@@ -69,6 +69,10 @@ for (const scene of Object.values(METAPHOR_SCENES)) {
     if (!(step.action in ACTIONS)) fail(`${where}: 第 ${index + 1} 步的动作 ${step.action} 还没有画法，应退回卡片图`);
     if (!ids.has(step.from) || !ids.has(step.to)) fail(`${where}: 第 ${index + 1} 步引用了不存在的角色`);
     if (Array.from(step.say).length > 30) fail(`${where}: 第 ${index + 1} 步说明超过 30 个字`);
+    for (const color of [step.payload, step.becomes]) if (color && !(color in PAYLOAD_COLORS)) fail(`${where}: 第 ${index + 1} 步的包裹颜色 ${color} 不在令牌里`);
+    if (step.action === "transform" && (!step.payload || !step.becomes || step.payload === step.becomes)) fail(`${where}: 第 ${index + 1} 步是转换，必须给出前后两种不同的颜色`);
+    if (step.action !== "introduce" && step.from === step.to) fail(`${where}: 第 ${index + 1} 步的发送方和接收方相同`);
+    for (const label of [step.payloadLabel, step.becomesLabel]) if (label && Array.from(label).length > 8) fail(`${where}: 第 ${index + 1} 步的包裹标签超过 8 个字`);
   }
   const used = new Set(scene.steps.flatMap((step) => [step.from, step.to]));
   for (const actor of scene.actors) if (!used.has(actor.id)) fail(`${where}: ${actor.id} 从未参与任何步骤`);

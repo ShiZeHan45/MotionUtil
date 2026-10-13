@@ -10,9 +10,17 @@ export const materials = { skin: "#FFE3B8", cardboard: "#F2C892", glass: "rgba(2
 export const STROKE = { base: 6, detail: 5, fine: 4, tiny: 3, handle: 14 } as const;
 export const CHARACTER_CANVAS = 160;
 export const SHADOW = { character: "drop-shadow(0 6px 0 rgba(20,52,74,.12))", panel: "0 10px 0 rgba(20,52,74,.10)", panelFill: "rgba(255,255,255,.6)", caption: "0 8px 0 rgba(20,52,74,.12)" } as const;
-export const SIZES = { actor: 170, packet: 96, packetLarge: 104, packetResult: 110, packetSmall: 64, gearSmall: 68, lens: 150, badge: 68 } as const;
+export const SIZES = { actor: 170, packet: 96, packetLarge: 104, packetResult: 110, packetSmall: 64, gearSmall: 68, lens: 150, badge: 68, layer: 100 } as const;
 export const STAGE = { width: 940, height: 900, actorArea: 700 } as const;
 export const FONT_WEIGHT = { strong: 900, normal: 800 } as const;
+
+/** Colours a parcel can carry. Same information keeps its colour along a chain; only a transform changes it. */
+export const PAYLOAD_COLORS = { yellow: palette.yellow, teal: palette.teal, coral: palette.coral } as const;
+export type PayloadColor = keyof typeof PAYLOAD_COLORS;
+export const payloadColor = (name: string | undefined, fallback?: string): string => {
+  const pick = (value: string | undefined) => (value && value in PAYLOAD_COLORS ? PAYLOAD_COLORS[value as PayloadColor] : undefined);
+  return pick(name) ?? pick(fallback) ?? PAYLOAD_COLORS.yellow;
+};
 
 export const allowedColors: ReadonlySet<string> = new Set([...Object.values(palette), ...Object.values(materials), "none"].map((value) => value.toLowerCase()));
 export const allowedStrokeWidths: ReadonlySet<number> = new Set(Object.values(STROKE));

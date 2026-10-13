@@ -4,6 +4,7 @@ import type { MetaphorPlan } from "../../types";
 import { ACTIONS } from "./actions";
 import { ACTION_CATEGORIES, type ActionCategory } from "./categories";
 import { CHARACTERS, type CharacterId } from "./characters";
+import { PAYLOAD_COLORS } from "./style";
 import type { MetaphorScene } from "./scenes";
 
 /** Six fixed positions keep every generated scene inside the layout the style check validates. */
@@ -14,7 +15,7 @@ export const SLOTS = {
 export type SlotId = keyof typeof SLOTS;
 
 // Props appear by themselves when an action plays; they are not actors.
-const PROP_CHARACTERS: readonly string[] = ["packet", "lens"];
+const PROP_CHARACTERS: readonly string[] = ["packet", "lens", "funnel", "clock", "signpost", "plug"];
 export const MIN_FIT = 0.6;
 const MIN_GROUNDED_SHARE = 0.7;
 
@@ -82,8 +83,13 @@ export function evaluateMetaphor(plan: MetaphorPlan | null | undefined, context:
     if (step.action !== beat.category) reasons.push(`拍 ${beatId} 的动作 ${step.action} 与类别 ${beat.category} 不一致`);
     if (!actorIds.has(step.from) || !actorIds.has(step.to)) reasons.push(`拍 ${beatId} 引用了不存在的角色`);
     if (!step.say.trim() || Array.from(step.say).length > 30) reasons.push(`拍 ${beatId} 的画面说明需为 1–30 个字`);
+    const colorOk = (value: string | null | undefined) => value === undefined || value === null || value in PAYLOAD_COLORS;
+    if (!colorOk(step.payload) || !colorOk(step.becomes)) reasons.push(`拍 ${beatId} 的包裹颜色只能是 ${Object.keys(PAYLOAD_COLORS).join("、")}`);
+    if (step.action === "transform" && (!step.payload || !step.becomes || step.payload === step.becomes)) reasons.push(`拍 ${beatId} 是转换，必须给出转换前后两种不同的包裹颜色`);
+    if (step.action !== "introduce" && step.from === step.to) reasons.push(`拍 ${beatId} 的发送方和接收方不能是同一个角色`);
+    for (const label of [step.payloadLabel, step.becomesLabel]) if (label && Array.from(label).length > 8) reasons.push(`拍 ${beatId} 的包裹标签超过 8 个字`);
     stepIndexByBeat.set(beatId, steps.length);
-    steps.push({ action: step.action as ActionCategory, from: step.from, to: step.to, say: step.say });
+    steps.push({ action: step.action as ActionCategory, from: step.from, to: step.to, say: step.say, payload: step.payload ?? undefined, payloadLabel: step.payloadLabel ?? undefined, becomes: step.becomes ?? undefined, becomesLabel: step.becomesLabel ?? undefined });
   }
   if (result.gaps.length) reasons.push(`有 ${result.gaps.length} 拍的动作类别还没有画法：${[...new Set(result.gaps)].join("、")}`);
   if (steps.length < 2) reasons.push("可画的步骤少于 2 步");

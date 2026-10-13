@@ -68,7 +68,7 @@ export const RemotionRoot: React.FC = () => <><Composition
   id="MetaphorGallery"
   component={MetaphorGallery}
   width={1080}
-  height={1920}
+  height={4800}
   fps={FPS}
   durationInFrames={1}
 /><Composition

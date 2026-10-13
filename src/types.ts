@@ -61,7 +61,7 @@ export type MetaphorPlan = {
   fitReason: string;
   actors: Array<{ id: string; character: string; label: string; real: string; slot: string }>;
   /** Every concept beat gets a category from the closed action list; `step` is set only when that category can be drawn. */
-  beats: Array<{ beatId: string; category: string; step: { action: string; from: string; to: string; say: string } | null }>;
+  beats: Array<{ beatId: string; category: string; step: { action: string; from: string; to: string; say: string; payload?: string | null; payloadLabel?: string | null; becomes?: string | null; becomesLabel?: string | null } | null }>;
 };
 export type MetaphorRecord = { vocabularyHash: string; plan: MetaphorPlan | null };
 
