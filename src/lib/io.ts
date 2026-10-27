@@ -16,6 +16,12 @@ export function safeJson(text: string): unknown {
     return JSON.parse(trimmed);
   } catch (error) {
     if (error instanceof SyntaxError) {
+      // Models sometimes append stray closing brackets after a complete object; keep the complete part
+      const trailing = error.message.match(/non-whitespace character after JSON at position (\d+)/);
+      if (trailing) {
+        const end = parseInt(trailing[1]!, 10);
+        if (/^[\s\]}]*$/.test(trimmed.slice(end))) return JSON.parse(trimmed.slice(0, end));
+      }
       // Extract context around the error position for debugging
       const match = error.message.match(/position (\d+)/);
       if (match) {
